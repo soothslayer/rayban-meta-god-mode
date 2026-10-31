@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleDisplayName</key><string>CJ</string>
+  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+  <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+  <key>LSRequiresIPhoneOS</key><true/>
+  <key>UILaunchScreen</key><dict/>
+  <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
+  <key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+  <key>NSMicrophoneUsageDescription</key><string>CJ sends your microphone audio to your paired Mac during a voice conversation.</string>
+  <key>NSCameraUsageDescription</key><string>Scan the pairing QR code shown on your Mac.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key><string>Connect to your Meta glasses for camera access.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Connect to the CJ brain on your Mac and to your Meta glasses.</string>
+  <key>NSBonjourServices</key><array><string>_cjbrain._tcp</string><string>_bonjour._tcp</string></array>
+  <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+  <key>UIBackgroundModes</key><array><string>audio</string><string>bluetooth-central</string><string>bluetooth-peripheral</string><string>external-accessory</string></array>
+  <key>UISupportedExternalAccessoryProtocols</key><array><string>com.meta.ar.wearable</string></array>
+  <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>cjglasses</string></array><key>CFBundleURLName</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string></dict></array>
+  <key>MWDAT</key><dict>
+    <key>AppLinkURLScheme</key><string>cjglasses://</string>
+    <key>MetaAppID</key><string>$(META_APP_ID)</string>
+    <key>ClientToken</key><string>$(CLIENT_TOKEN)</string>
+    <key>TeamID</key><string>$(DEVELOPMENT_TEAM)</string>
+    <key>Analytics</key><dict><key>OptOut</key><true/></dict>
+  </dict>
+</dict></plist>
