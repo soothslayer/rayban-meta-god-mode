@@ -14,6 +14,9 @@ final class AppModel: ObservableObject {
     @Published var pendingNumber: String?
     @Published var attachedImage: Data?
     @Published var speakReplies = true
+    @Published var transcriptionLanguage = UserDefaults.standard.string(forKey: "speechLanguage") ?? "en-US" {
+        didSet { UserDefaults.standard.set(transcriptionLanguage, forKey: "speechLanguage") }
+    }
     let live = LiveConversation()
     let glasses = GlassesManager()
     private let speech = AVSpeechSynthesizer()
@@ -98,7 +101,7 @@ final class AppModel: ObservableObject {
         if live.active { live.stop(); return }
         guard !busy, let pairing else { return }
         stopSpeaking()
-        live.start(pairing: pairing, history: turns)
+        live.start(pairing: pairing, history: turns, transcriptionLanguage: transcriptionLanguage)
     }
 
     func cancelRequest() {

@@ -37,7 +37,8 @@ final class CJUITests: XCTestCase {
         if readReplies.exists && readReplies.value as? String == "1" { readReplies.tap() }
         app.tabBars.buttons["Conversation"].tap()
         XCTAssertTrue(app.buttons["talk-button"].isEnabled)
-        app.textFields["message-input"].tap(); app.textFields["message-input"].typeText("hello from iOS")
+        let messageInput = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+        messageInput.tap(); messageInput.typeText("hello from iOS")
         app.buttons["send-message"].tap()
         XCTAssertTrue(app.staticTexts["Mock reply: hello from iOS"].waitForExistence(timeout: 15))
         let attachment = XCTAttachment(screenshot: app.screenshot())

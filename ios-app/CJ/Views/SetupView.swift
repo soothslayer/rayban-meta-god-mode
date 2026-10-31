@@ -55,6 +55,15 @@ struct SetupView: View {
                 }.disabled(qrText.isEmpty || connecting || model.busy || live.active)
             }
             Section("Conversation") {
+                Picker("Speech language", selection: $model.transcriptionLanguage) {
+                    Text("English").tag("en-US")
+                    Text("Auto detect").tag("")
+                    Text("Hindi").tag("hi-IN")
+                    Text("Spanish").tag("es-ES")
+                    Text("French").tag("fr-FR")
+                    Text("German").tag("de-DE")
+                    Text("Japanese").tag("ja-JP")
+                }.disabled(live.active)
                 Toggle("Read text replies aloud", isOn: $model.speakReplies)
                 Text("Tap Talk to CJ to begin live voice. Active audio sessions may continue with the screen locked. This version has no always-on “CJ” wake word.")
                     .font(.footnote).foregroundStyle(.secondary)

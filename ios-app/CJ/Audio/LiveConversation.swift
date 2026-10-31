@@ -21,7 +21,7 @@ final class LiveConversation: ObservableObject {
     private var timeout: Task<Void, Never>?
     private var generation = UUID()
 
-    func start(pairing: Pairing, history: [Turn]) {
+    func start(pairing: Pairing, history: [Turn], transcriptionLanguage: String) {
         guard !active else { return }
         active = true
         heard = ""; said = ""
@@ -37,8 +37,13 @@ final class LiveConversation: ObservableObject {
                 self.socket = socket
                 socket.maximumMessageSize = 2_000_000
                 socket.resume()
-                struct Start: Encodable { let type = "start"; let mode = "assistant"; let history: [Turn] }
-                let start = try JSONEncoder().encode(Start(history: Array(history.suffix(8))))
+                struct Start: Encodable {
+                    let type = "start"
+                    let mode = "assistant"
+                    let history: [Turn]
+                    let transcription_language: String
+                }
+                let start = try JSONEncoder().encode(Start(history: Array(history.suffix(8)), transcription_language: transcriptionLanguage))
                 try await socket.send(.string(String(decoding: start, as: UTF8.self)))
                 self.timeout = Task { [weak self] in
                     try? await Task.sleep(for: .seconds(25))

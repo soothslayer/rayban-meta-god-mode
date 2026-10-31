@@ -37,6 +37,12 @@ pinned to **1.0.1**, including its exact revision in `Package.resolved`.
    chat, but it is not an AI service. Phone audio and any connected Bluetooth HFP
    headset can be used before linking the glasses camera.
 
+Live voice defaults to **English**. Change **Setup → Speech language** to use a
+different supported language or automatic detection. The app sends this preference
+to the brain, which supplies Gemini's transcription language hint and preferred
+reply language. Restart an older running brain after updating this fork. Hints
+improve recognition; they do not guarantee perfect transcripts.
+
 The iPhone and Mac must be able to reach each other over Wi-Fi. Use a trusted
 local network for the original brain's HTTP endpoint. The app also supports
 HTTPS/WSS endpoints, preserving ATS protections for internet hosts. Do not expose
@@ -116,10 +122,15 @@ Run the original backend tests with `cd brain && .venv/bin/python -m pytest -q`.
 
 For a lighter check that does not start Simulator, run
 `cd ios-app && swift test --jobs 2`. This exercises the same pairing and HTTP
-client sources on macOS. The initial run passed all 8 core tests and all 144
-backend tests. The first simulator UI run was blocked by the simulator test
+client sources on macOS. Verification passed all 8 core tests and all 151
+backend tests, including explicit speech-language preferences. The simulator UI run was blocked by the simulator test
 runner stalling under memory pressure, so a compile result alone is not a UI or
 hardware test result.
+
+The signed iPhone build was installed and launched on a physical iPhone 16 Plus.
+The user confirmed microphone transcription and audible replies after fixing
+audio startup notifications. Full camera behavior and longer sessions remain to
+be tested on hardware.
 
 The checked-in project builds without XcodeGen. After adding/removing source files
 or editing project settings, regenerate it with:
@@ -146,6 +157,7 @@ project in Xcode.
 - [Meta iOS setup guide](https://github.com/facebook/meta-wearables-dat-ios/blob/main/plugins/mwdat-ios/skills/getting-started/SKILL.md)
 - [Apple local-network ATS configuration](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking)
 - [Apple voice-chat audio mode](https://developer.apple.com/documentation/avfaudio/avaudiosession/mode-swift.struct/voicechat)
+- [Gemini transcription language hints](https://ai.google.dev/api/live#AudioTranscriptionConfig)
 
 Original CJ source and this port use the repository's MIT license. The Meta SDK
 is a separate dependency governed by Meta's own terms; it is not relicensed here.
