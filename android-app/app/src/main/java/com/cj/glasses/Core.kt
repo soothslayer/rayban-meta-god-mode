@@ -3,7 +3,12 @@ package com.cj.glasses
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.net.Uri
+import android.telecom.TelecomManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -14,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class TimerItem(val label: String, val dueAt: Long)
 
@@ -43,12 +49,38 @@ object Core {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var cached: Pair<Pairing, BrainClient>? = null
     private var pendingVoice: Pair<String, ByteArray>? = null
+    /** Set when the last answer opened a note-taking session ("start taking notes"); the service takes over. */
+    var dictation: String? = null
 
-    /** Says [text] in CJ's Azure voice when the brain sent it with the answer, else with the phone's voice. */
+    var lastPlace: Place? = null
+
+    /**
+     * Roughly where the phone is, for "how long to the airport". Null without the location permission.
+     * Android can hide the location from a background service, so the last one seen (with CJ open) is kept.
+     */
+    @Suppress("MissingPermission")
+    fun place(): Place? {
+        val allowed = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            .any { app.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+        if (!allowed) return null
+        val lm = app.getSystemService(LocationManager::class.java) ?: return lastPlace
+        val now = runCatching {
+            lm.getProviders(true).mapNotNull { lm.getLastKnownLocation(it) }.maxByOrNull { it.time }
+        }.getOrNull()?.let { Place(it.latitude, it.longitude, if (it.hasAccuracy()) it.accuracy else null) }
+        if (now != null) lastPlace = now
+        return lastPlace
+    }
+
+    /**
+     * Says [text] in CJ's voice: the one the brain sent with the answer, else fetched for it ("Bye!", "Okay, I
+     * stopped"), and the phone's own voice only when the brain doesn't answer quickly.
+     */
     suspend fun speak(text: String) {
-        val voice = pendingVoice
+        val voice = pendingVoice?.takeIf { it.first == text }?.second
+            ?: withTimeoutOrNull(2_500) { runCatching { brain()?.voiceFor(text) }.getOrNull() }
         pendingVoice = null
-        if (voice != null && voice.first == text) speaker.play(voice.second) else speaker.say(text)
+        if (voice != null) speaker.play(voice) else speaker.say(text)
+        pendingCall?.let { pendingCall = null; call(it) }
     }
 
     fun init(context: Context) {
@@ -107,6 +139,42 @@ object Core {
             .build())
     }
 
+    /**
+     * "Call this number": the brain already asked "Call …?" and heard yes. Calls straight away through the phone
+     * (works from the background); without the permission it opens the dialler with the number filled in.
+     */
+    @Suppress("MissingPermission")
+    fun call(number: String) {
+        val uri = Uri.fromParts("tel", number, null)
+        if (app.checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+            runCatching { app.getSystemService(TelecomManager::class.java).placeCall(uri, null) }
+                .onSuccess { return }
+        }
+        runCatching {
+            app.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, uri)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    /** Set when the last answer handed a task to the phone agent ("book me an Uber home"). */
+    var phoneTask: PhoneTask? = null
+
+    /** Set when the last answer started the live translator; the service takes over. */
+    var translateTo: String? = null
+
+    /** Calls after CJ has finished speaking, so "Calling Priya" isn't cut off by the ringing. */
+    var pendingCall: String? = null
+
+    /** One stretch of a note-taking session. */
+    suspend fun dictate(session: String, wav: ByteArray): NotesChunk {
+        val chunk = withBrain { it.dictate(session, wav) }
+        if (chunk.stopped) {
+            log.add(Turn("assistant", chunk.spoken))
+            pendingVoice = chunk.voice?.let { chunk.spoken to it }
+        }
+        return chunk
+    }
+
     fun glassesLinked(): Boolean =
         glasses.ready.value && glasses.registration.value == RegistrationState.REGISTERED
 
@@ -128,10 +196,14 @@ object Core {
         }
         val history = log.toList()
         log.add(Turn("user", if (shot != null) "[photo] $text" else text))
-        val answer = withBrain { it.ask(text, history, shot?.jpegBase64) }
+        val answer = withBrain { it.ask(text, history, shot?.jpegBase64, place()) }
         log.add(Turn("assistant", answer.spoken))
         details = answer.details
         answer.timer?.let(::startTimer)
+        pendingCall = answer.call
+        answer.visualMemory?.let { store.visualMemory = it }
+        translateTo = answer.translate
+        phoneTask = answer.task
         pendingVoice = answer.voice?.let { answer.spoken to it }
         return answer.spoken
     }
@@ -144,7 +216,8 @@ object Core {
     suspend fun askSpoken(wav: ByteArray): Pair<String, String> {
         status = "Thinking…"
         val history = log.toList()
-        val first = withBrain { it.askSpoken(wav, history) }
+        val first = withBrain { it.askSpoken(wav, history, place()) }
+        dictation = first.dictation
         val heard = first.heard.trim()
         if (heard.isEmpty() || wantsStop(heard)) return heard to ""
         if (!first.needsPhoto) {
@@ -153,6 +226,10 @@ object Core {
             details = first.details
             pendingVoice = first.voice?.let { first.spoken to it }
             first.timer?.let(::startTimer)
+            pendingCall = first.call
+            first.visualMemory?.let { store.visualMemory = it }
+            translateTo = first.translate
+            phoneTask = first.task
             return heard to first.spoken
         }
         val cantLook = when {
@@ -175,7 +252,8 @@ object Core {
 
 private val LOOK_PHRASES = Regex(
     """what am i looking at|what('s| is) (this|that|it)|read (this|that|it)|look at|can you see|""" +
-        """identify|tell me about this|\bye(h)? kya\b|kya hai (ye|yeh)|\bdekh|\bpadh|is(ka|ki|ko) |iska\b|""" +
+        """identify|tell me about this|(add|save|call|join|connect to|note) (this|that)\b|this (wifi|wi-fi|number|card|""" +
+        """whiteboard|poster|event)|\bye(h)? kya\b|kya hai (ye|yeh)|\bdekh|\bpadh|is(ka|ki|ko) |iska\b|""" +
         """ये क्या|यह क्या|देख|पढ़|इसका|इसको""",
     RegexOption.IGNORE_CASE,
 )
@@ -184,20 +262,33 @@ private val LOOK_PHRASES = Regex(
 fun wantsLook(text: String): Boolean = LOOK_PHRASES.containsMatchIn(text)
 
 private val STOP_PHRASES = Regex(
-    """\b(stop listening|go to sleep|turn off|band karo|so jao|chup ho ja)\b|बंद करो|सो जाओ""",
-    RegexOption.IGNORE_CASE,
-)
-
-fun wantsStop(text: String): Boolean = STOP_PHRASES.containsMatchIn(text)
-
-private val BYE_PHRASES = Regex(
-    """\b(bye( bye)?( g)?|good ?bye|that'?s all|that is all|that'?s it|see you|talk later|chalo bye|ok bye|""" +
-        """bas itna hi|bas itna|alvida|phir milte)\b|बाय|अलविदा|फिर मिलते""",
+    """\b(stop listening|go to sleep|turn (yourself|cj) off|turn off cj|switch off cj|band karo|so jao|chup ho ja)\b|""" +
+        """^(cj,? )?(turn|switch) off$|बंद करो|सो जाओ""",
     RegexOption.IGNORE_CASE,
 )
 
 /**
- * "Bye", "that's all", "alvida": ends the conversation (CJ goes back to waiting for "CJ"). Only when it's
+ * "Stop listening", "go to sleep", "turn yourself off": switches hands-free off. Only when that's all that was
+ * said, so "turn off the bedroom lights" or "AC band karo" goes to the smart home instead.
+ */
+fun wantsStop(text: String): Boolean {
+    val clean = text.trim().trimEnd('.', '!', '?', '।').trim()
+    return STOP_PHRASES.containsMatchIn(clean) && clean.split(Regex("\\s+")).size <= 4 &&
+        !Regex("(?i)\\b(ac|light|lights|fan|tv|music|notes|geyser|plug)\\b").containsMatchIn(clean)
+}
+
+private val BYE_PHRASES = Regex(
+    """\b(bye( bye)?( cj)?|good ?bye|that'?s all|that is all|that'?s it( for now)?|see you|see ya|""" +
+        """talk (to you )?later|catch you later|later cj|i('ve| have)? (got|gotta) to go|i (gotta|have to|need to|must) go|""" +
+        """gotta go|got to go|i'?m (done|off)|we'?re done|done for (now|today)|nothing else|""" +
+        """chalo bye|ok bye|bas itna hi|bas itna|alvida|phir milte|chalta hu+n?|chalti hu+n?|""" +
+        """adi[oó]s|hasta luego|au revoir|tsch[uü]ss|ciao|tchau|sayonara|ma'?a ?salama|khuda hafiz|allah hafiz)\b|""" +
+        """बाय|अलविदा|फिर मिलते|चलता हूँ|再见|さようなら|до свидания|пока|مع السلامة|খোদা হাফেজ|خدا حافظ""",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
+ * "Bye", "I've got to go", "that's all", "alvida", "adiós": ends the conversation (CJ goes back to waiting for "CJ"). Only when it's
  * the point of what was said: a short phrase, or one ending with it. "How do you say bye in French?" doesn't count.
  */
 fun wantsBye(text: String): Boolean {

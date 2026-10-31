@@ -1,36 +1,55 @@
 """Picks a provider for each request and falls back down the chain when one fails or is rate limited.
 
-Chain: gemini -> groq (text only) -> mock. More providers (OpenAI, DeepSeek, local models) can plug in here.
+Your main brain comes first (config "provider", or CJ_PROVIDER: gemini | claude | openai), then the free ones:
+gemini -> groq (text only) -> mock. Speech is always heard by Gemini, the only one here that takes audio.
 """
 from __future__ import annotations
 
 import os
 
+from .. import config
 from ..events import bus
-from .base import Completion, Attachment, Provider, ProviderError
+from .base import Attachment, Completion, Provider, ProviderError
+from .claude import Claude
 from .gemini import Gemini
 from .groq import Groq
 from .mock import Mock
+from .openai import OpenAI
+
+AUDIO = "gemini"
+NO_IMAGES = {"groq"}
 
 
 class Router:
     def __init__(self) -> None:
-        self.providers: list[Provider] = [Gemini(), Groq()]
+        self.providers: dict[str, Provider] = {p.name: p for p in (Gemini(), Claude(), OpenAI(), Groq())}
         self.mock = Mock()
 
-    def chain(self, needs_image: bool) -> list[Provider]:
+    def preferred(self) -> str:
+        """The main brain you picked, if its key is set; otherwise Gemini."""
+        name = os.environ.get("CJ_PROVIDER") or config.load().get("provider") or AUDIO
+        p = self.providers.get(name)
+        return name if p and p.available() else AUDIO
+
+    def chain(self, attachment: Attachment | None = None) -> list[Provider]:
         if os.environ.get("CJ_FORCE_MOCK") == "1":
             return [self.mock]
-        usable = [p for p in self.providers if p.available() and not (needs_image and p.name == "groq")]
+        if attachment and attachment.mime.startswith("audio/"):
+            names = [AUDIO]
+        else:
+            names = list(dict.fromkeys([self.preferred(), "gemini", "groq"]))
+            if attachment:
+                names = [n for n in names if n not in NO_IMAGES]
+        usable = [self.providers[n] for n in names if self.providers[n].available()]
         return usable or [self.mock]
 
     def status(self) -> dict:
-        return {p.name: p.available() for p in self.providers} | {"mock": True}
+        return {name: p.available() for name, p in self.providers.items()} | {"mock": True}
 
     async def complete(self, task: str, system: str, messages: list[dict], image: Attachment | None = None,
                        json_mode: bool = True) -> Completion:
         last_error: Exception | None = None
-        for provider in self.chain(image is not None):
+        for provider in self.chain(image):
             try:
                 result = await provider.complete(system, messages, image, json_mode)
                 bus.emit("model_call", task=task, provider=result.provider, model=result.model,

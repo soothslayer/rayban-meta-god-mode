@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Glasses: the wearables SDK talks to them over Bluetooth; MODIFY_AUDIO_SETTINGS routes the mic to them. -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
@@ -10,6 +13,7 @@
     <!-- Hands-free: a foreground service keeps listening for "CJ" with the screen off. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Needed so SpeechRecognizer.isRecognitionAvailable() can see the phone's speech service. -->
@@ -59,7 +63,18 @@
         <service
             android:name=".CJService"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone|location" />
+
+        <service
+            android:name=".AgentService"
+            android:exported="true"
+            android:label="CJ phone agent"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/agent_service" />
+        </service>
 
         <service
             android:name=".CJTile"

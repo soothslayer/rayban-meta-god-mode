@@ -8,6 +8,7 @@ work ask for a spoken "yes" first.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import glob
 import os
 import re
@@ -18,6 +19,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Callable
 
+from . import agent, alexa, tv
 from .events import bus
 
 CONFIRM_SECONDS = 30
@@ -169,7 +171,7 @@ def _running_apps(_: dict) -> str:
 def screenshot() -> str:
     """A downscaled JPEG of the screen, base64. Needs Screen Recording permission for the app running the brain."""
     import base64
-    path = os.path.join(tempfile.gettempdir(), f"g-screen-{os.getpid()}.jpg")
+    path = os.path.join(tempfile.gettempdir(), f"cj-screen-{os.getpid()}.jpg")
     try:
         _run(["screencapture", "-x", "-t", "jpg", path])
         _run(["sips", "-Z", "1600", path])
@@ -308,6 +310,90 @@ def _make_reminder(a: dict) -> str:
     return "Added to your Reminders."
 
 
+DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
+
+
+def _calendar_add(a: dict) -> str:
+    """"Add this to my calendar" while looking at a poster or invite: the model reads the details off the photo."""
+    title = str(a.get("title", "")).strip()[:200]
+    date, at = str(a.get("date", "")).strip(), str(a.get("time", "") or "").strip()
+    d, t = DATE_RE.match(date), TIME_RE.match(at) if at else None
+    if not title or not d:
+        raise MacError("I couldn't read the event's name and date.")
+    if at and not t:
+        raise MacError("I couldn't read the event's time.")
+    year, month, day = (int(x) for x in d.groups())
+    hour, minute = (int(x) for x in t.groups()) if t else (0, 0)
+    minutes = max(15, min(24 * 60, int(float(a.get("duration_minutes") or 60))))
+    place = str(a.get("location", "") or "").strip()[:200]
+    end = f"set e1 to e0 + {minutes} * minutes" if t else "set e1 to e0 + 1 * days"
+    _osa(f'''set e0 to current date
+set day of e0 to 1
+set year of e0 to {year}
+set month of e0 to {month}
+set day of e0 to {day}
+set hours of e0 to {hour}
+set minutes of e0 to {minute}
+set seconds of e0 to 0
+{end}
+tell application "Calendar"
+  set c to first calendar whose writable is true
+  make new event at end of events of c with properties {{summary:{_applescript_text(title)}, start date:e0, end date:e1, location:{_applescript_text(place)}, allday event:{"false" if t else "true"}}}
+end tell''')
+    when = f"{day} {('January February March April May June July August September October November December').split()[month - 1]}"
+    return f"Added {title} on {when}" + (f" at {hour}:{minute:02d}" if t else "") + " to your calendar."
+
+
+def _contact_add(a: dict) -> str:
+    """"Save this contact" while looking at a business card."""
+    name = str(a.get("name", "")).strip()[:120]
+    phone = re.sub(r"[^\d+]", "", str(a.get("phone", "") or ""))[:20]
+    email = str(a.get("email", "") or "").strip().lower()[:120]
+    if not name or not (phone or (email and EMAIL_RE.match(email))):
+        raise MacError("I couldn't read a name and a number or email.")
+    first, _, last = name.partition(" ")
+    lines = [f'set p to make new person with properties {{first name:{_applescript_text(first)}, '
+             f'last name:{_applescript_text(last)}, organization:{_applescript_text(str(a.get("company", "") or "")[:120])}}}']
+    if phone:
+        lines.append(f'make new phone at end of phones of p with properties {{label:"mobile", value:{_applescript_text(phone)}}}')
+    if email and EMAIL_RE.match(email):
+        lines.append(f'make new email at end of emails of p with properties {{label:"work", value:{_applescript_text(email)}}}')
+    _osa('tell application "Contacts"\n  ' + "\n  ".join(lines) + "\n  save\nend tell")
+    return f"Saved {name} to your contacts."
+
+
+def _wifi_device() -> str:
+    ports = _run(["networksetup", "-listallhardwareports"]).splitlines()
+    for i, line in enumerate(ports):
+        if line.strip() in ("Hardware Port: Wi-Fi", "Hardware Port: AirPort") and i + 1 < len(ports):
+            return ports[i + 1].split(":", 1)[1].strip()
+    return "en0"
+
+
+def _wifi_join(a: dict) -> str:
+    """"Connect to this Wi-Fi" while looking at the card with the network name and password."""
+    ssid, password = str(a.get("ssid", "")).strip()[:32], str(a.get("password", "") or "").strip()[:63]
+    if not ssid:
+        raise MacError("I couldn't read the Wi-Fi name.")
+    out = _run(["networksetup", "-setairportnetwork", _wifi_device(), ssid, *([password] if password else [])])
+    if out:  # networksetup prints only when it failed
+        raise MacError(f"Couldn't join {ssid}: {out[:120]}")
+    return f"Your Mac is joining {ssid}."
+
+
+# Actions the phone carries out (it holds the SIM). The brain confirms first, then hands them back with the answer.
+PHONE: contextvars.ContextVar[dict | None] = contextvars.ContextVar("phone_action", default=None)
+PHONE_ACTIONS = {"call_number"}
+
+
+def _call_number(a: dict) -> str:
+    number = re.sub(r"[^\d+]", "", str(a.get("number", "")))
+    if len(number.lstrip("+")) < 3:
+        raise MacError("I couldn't read the number.")
+    return f"Calling {a.get('name') or ' '.join(number)}."
+
+
 def _storage(_: dict) -> str:
     fields = _run(["df", "-k", "/System/Volumes/Data"]).splitlines()[-1].split()
     free_gb = int(fields[3]) / 1024 / 1024
@@ -386,8 +472,59 @@ ACTIONS: dict[str, Action] = {
     "hide_app": Action(_hide_app),
     "youtube": Action(_youtube),
     "spotify_search": Action(_spotify_search),
-    # "whats_on_screen" is handled in modes/assistant.py: it needs a vision call, not a command.
+    # Claude Code remote (agent.py): runs in the background; CJ announces the result when it's done.
+    "claude_code": Action(lambda a: _claude_code(a), confirm="Ask Claude Code to {task} in {project}?"),
+    "claude_code_status": Action(lambda a: agent.status()),
+    # Email (Mail app): always read back and sent only after a spoken yes.
+    "calendar_add": Action(_calendar_add),
+    "contact_add": Action(_contact_add),
+    "wifi_join": Action(_wifi_join),
+    "call_number": Action(_call_number, confirm="Call {spoken_number}?"),
+    "send_email": Action(lambda a: _send_email(a),
+                         confirm="Email {name}, subject {subject}. It says: {preview}. Send it?"),
+    # TV control (tv.py): Fire TV or Android TV over network debugging.
+    **{name: Action(run) for name, run in tv.ACTIONS.items()},
+    # Smart home (alexa.py): lights, plugs, AC and routines, through the user's Alexa.
+    **{name: Action(run) for name, run in alexa.ACTIONS.items()},
+    # "whats_on_screen" and "code_help" are handled in modes/assistant.py: they need a vision call.
 }
+
+
+EMAIL_RE = re.compile(r"^[\w.+\-]+@[\w\-]+(\.[\w\-]+)+$")
+
+
+def resolve_recipient(spoken: str) -> tuple[str, str]:
+    """An email address as said, or a name looked up in the Mac's Contacts. Returns (name, address)."""
+    spoken = spoken.strip().strip(".")
+    compact = spoken.replace(" at ", "@").replace(" dot ", ".").replace(" ", "").lower()
+    if EMAIL_RE.match(compact):
+        return compact, compact
+    if not spoken:
+        raise MacError("Who should I email?")
+    found = _osa(f'tell application "Contacts" to get {{name, value of first email}} of '
+                 f'(first person whose name contains {_applescript_text(spoken)} and (count of emails) > 0)')
+    parts = [p.strip() for p in found.split(",")]
+    if len(parts) < 2 or not EMAIL_RE.match(parts[-1]):
+        raise MacError(f"I couldn't find an email address for {spoken} in your Contacts.")
+    return parts[0], parts[-1]
+
+
+def _send_email(a: dict) -> str:
+    """Sends through the Mail app with the account already set up there; no password ever reaches CJ."""
+    address = str(a.get("to", ""))
+    if not EMAIL_RE.match(address):
+        raise MacError("That isn't a valid email address.")
+    _osa(f'''tell application "Mail"
+  set m to make new outgoing message with properties {{subject:{_applescript_text(str(a.get("subject", "")))}, content:{_applescript_text(str(a.get("body", "")))}, visible:false}}
+  tell m to make new to recipient at end of to recipients with properties {{address:{_applescript_text(address)}}}
+  send m
+end tell''')
+    return f"Sent to {a.get('name') or address}."
+
+
+def _claude_code(a: dict) -> str:
+    job = agent.start(str(a.get("project", "")), str(a.get("task", "")), bool(a.get("continue")))
+    return f"Claude Code is on it in {job.project}. I'll tell you when it's done."
 
 PROMPT = """
 You can also control the user's MacBook. When they clearly ask for something on their Mac, laptop or
@@ -401,8 +538,22 @@ scroll_up|new_tab|close_tab|next_tab|previous_tab|reload|back|forward|copy|paste
 find|full_screen|new_window|minimize|spotlight|zoom_in|zoom_out}, type_text {text}, open_file {name}
 (a document or folder by name), run_shortcut {name} (one of the user's macOS Shortcuts), list_shortcuts,
 calendar_today, make_reminder {text}, make_note {text}, storage, read_clipboard, save_screenshot,
-lock_screen, sleep_mac, battery, whats_on_screen. Otherwise "mac_action" is null.
-Never use it for anything not on this list, and only when the user clearly asked for it."""
+lock_screen, sleep_mac, battery, whats_on_screen, code_help {question} (looks at the code or error on the
+Mac's screen and helps with it like a senior engineer).
+Look and do (usually with a photo from the glasses: read the details off it exactly, never guess missing ones):
+calendar_add {title, date: YYYY-MM-DD, time: HH:MM 24h or empty for all day, duration_minutes, location} ("add this
+to my calendar" at a poster or invite), contact_add {name, phone, email, company} ("save this contact" at a business
+card), wifi_join {ssid, password} ("connect to this Wi-Fi" at the card with the network details), call_number
+{number, name} ("call this number"; the phone makes the call after the user says yes). For "turn this whiteboard /
+page into notes", use the note_add tool with a clean, complete write-up of what the photo shows.
+Email: send_email {to (a name from Contacts or an email address), subject, body (write the email from what the user
+ said: short, polite, in their language)}; it is read back and only sent after the user says yes.
+Claude Code on the Mac: claude_code {project, task, continue: true to follow up on the last job} (gives a coding
+task to Claude Code in one of the user's projects; write the task clearly in English), claude_code_status.
+""" + tv.PROMPT + alexa.PROMPT + """
+Mac, TV, smart home and Claude Code actions always go in "mac_action" (never in "tool"), and "spoken" must not claim
+the action already happened. Otherwise "mac_action" is null. Never use it for anything not on this list,
+and only when the user clearly asked for it."""
 
 _pending: tuple[str, dict, float] | None = None
 
@@ -435,9 +586,9 @@ async def handle(data: dict) -> str | None:
     question = ACTIONS[name].confirm
     if question:
         try:
-            if "app" in args:
-                args = {**args, "app": find_app(str(args["app"]))}
-        except MacError as e:
+            # Contacts and project lookups take a second or two: off the event loop, so live audio keeps flowing.
+            args = await asyncio.to_thread(_prepare, name, args)
+        except (MacError, agent.AgentError) as e:
             return str(e)
         _pending = (name, args, time.time())
         bus.emit("mac_confirm", action=name, args=args)
@@ -445,11 +596,39 @@ async def handle(data: dict) -> str | None:
     return await _execute(name, args)
 
 
+def _prepare(name: str, args: dict) -> dict:
+    """Fills in what the "are you sure?" question needs: the real app, project, contact or number."""
+    if "app" in args:
+        args = {**args, "app": find_app(str(args["app"]))}
+    if name == "claude_code":
+        args = {**args, "project": agent.find_project(str(args.get("project", "")))[0],
+                "task": str(args.get("task", "")).strip().rstrip(".")}
+    if name == "call_number":
+        number = re.sub(r"[^\d+]", "", str(args.get("number", "")))
+        if len(number.lstrip("+")) < 3:
+            raise MacError("I couldn't read the number.")
+        who = str(args.get("name", "") or "").strip()
+        args = {**args, "number": number, "spoken_number": f"{who}, " * bool(who) + " ".join(number)}
+    if name == "send_email":
+        person, address = resolve_recipient(str(args.get("to", "")))
+        body = re.sub(r"\s+", " ", str(args.get("body", ""))).strip()
+        if not body:
+            raise MacError("What should the email say?")
+        args = {**args, "to": address, "name": person, "body": body,
+                "subject": str(args.get("subject") or body[:60]).strip(), "preview": body[:160].rstrip(" .!?")}
+    return args
+
+
 async def _execute(name: str, args: dict) -> str:
     try:
         result = await asyncio.to_thread(ACTIONS[name].run, args)
+        if name in PHONE_ACTIONS:
+            PHONE.set({"action": name, "number": args.get("number", ""), "who": args.get("name", "")})
         bus.emit("mac_action", action=name, args=args, result=result)
         return result
-    except (MacError, subprocess.TimeoutExpired, ValueError) as e:
+    except (MacError, tv.TVError, alexa.AlexaError, agent.AgentError) as e:
         bus.emit("mac_action", action=name, args=args, error=str(e)[:200])
-        return str(e) if isinstance(e, MacError) else "That didn't work on the Mac."
+        return str(e)
+    except (subprocess.TimeoutExpired, ValueError) as e:
+        bus.emit("mac_action", action=name, args=args, error=str(e)[:200])
+        return "That didn't work."

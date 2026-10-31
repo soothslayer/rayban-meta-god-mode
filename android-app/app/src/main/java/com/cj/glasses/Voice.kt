@@ -47,6 +47,7 @@ class Speaker(context: Context) {
      * too; switching to music audio mid-conversation makes the glasses drop and rebuild the connection.
      */
     fun setVoiceCall(on: Boolean) {
+        voiceCall = on
         attributes = AudioAttributes.Builder()
             .setUsage(if (on) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_ASSISTANT)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -54,8 +55,11 @@ class Speaker(context: Context) {
         tts.setAudioAttributes(attributes)
     }
 
-    private var attributes: AudioAttributes = AudioAttributes.Builder()
+    var attributes: AudioAttributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+        private set
+    var voiceCall = false
+        private set
 
     /** Plays a WAV (CJ's Azure voice from the brain) and returns when it has finished. */
     suspend fun play(wav: ByteArray) {

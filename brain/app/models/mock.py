@@ -34,6 +34,36 @@ def _mac_intent(text: str, system: str) -> dict:
         return {"tool": {"name": "recall", "args": {"query": m[1]}}}
     if m := re.match(r"timer (\d+)", low):
         return {"tool": {"name": "timer", "args": {"seconds": int(m[1]), "label": "test"}}, "spoken": ""}
+    if m := re.match(r"book me an uber to (.+)", low):
+        return {"tool": {"name": "phone_task", "args": {"goal": f"book an Uber to {m[1]}", "app": "uber", "destination": m[1]}}}
+    if m := re.match(r"translate for me in (\w+)", low):
+        return {"tool": {"name": "translate_start", "args": {"other_language": m[1]}}}
+    if low == "what did i see today":
+        return {"tool": {"name": "timeline", "args": {"hours": 12}}}
+    if m := re.match(r"(start|pause) visual memory", low):
+        return {"tool": {"name": "visual_memory", "args": {"on": m[1] == "start"}}}
+    if m := re.match(r"take a note (.+)", low):
+        return {"tool": {"name": "note_add", "args": {"text": m[1]}}, "spoken": ""}
+    if low == "start taking notes":
+        return {"tool": {"name": "notes_start", "args": {}}}
+    if low == "summarise my notes":
+        return {"tool": {"name": "notes_summary", "args": {"period": "today"}}}
+    if m := re.match(r"email (\S+) saying (.+)", low):
+        return {"mac_action": {"name": "send_email", "args": {"to": m[1], "subject": "Hi", "body": m[2]}}}
+    if m := re.match(r"how long to (.+)", low):
+        return {"tool": {"name": "travel_time", "args": {"destination": m[1], "mode": "driving"}}}
+    if m := re.match(r"ask claude code to (.+) in (\S+)", low):
+        return {"mac_action": {"name": "claude_code", "args": {"task": m[1], "project": m[2]}}}
+    if m := re.match(r"(turn (?:on|off) the .+|set the ac to .+)", low):
+        return {"tool": {"name": "home", "args": {"command": m[1]}}}  # misfiled on purpose: _normalise moves it
+    if m := re.match(r"start (.+) routine", low):
+        return {"mac_action": {"name": "home_routine", "args": {"name": m[1]}}}
+    if m := re.match(r"tv open (.+)", low):
+        return {"mac_action": {"name": "tv_open", "args": {"app": m[1]}}}
+    if m := re.match(r"tv press (.+)", low):
+        return {"mac_action": {"name": "tv_key", "args": {"key": m[1]}}}
+    if low == "help with this code":
+        return {"mac_action": {"name": "code_help", "args": {}}}
     if m := re.match(r"note (.+)", low):
         return {"mac_action": {"name": "make_note", "args": {"text": m[1]}}}
     if low in ("battery", "what's on my screen", "delete everything"):
@@ -60,6 +90,13 @@ class Mock(Provider):
             look = "look" in heard.lower() or "kya hai" in heard.lower()
             out = {"heard": heard, "needs_photo": look, "spoken": "" if look else f"Mock reply: {heard[:60]}",
                    "details": "", "language": "en"}
+        elif "TASK:glance" in system:
+            seen = _decode(image.data_b64) if image else ""
+            out = {"worth": bool(seen.strip()), "note": seen.strip()}
+        elif "TASK:dictate" in system:
+            out = {"heard": _decode(image.data_b64) if image else ""}
+        elif "TASK:summarise" in system:
+            out = {"title": "Mock meeting", "summary": "- " + last[:80], "spoken": "Two points, one action item."}
         elif "TASK:tool_answer" in system:
             result = last.split("RESULT:", 1)[-1].strip()
             out = {"spoken": f"From lookup: {result[:80]}", "details": result[:300]}

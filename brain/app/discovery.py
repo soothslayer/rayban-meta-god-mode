@@ -11,7 +11,7 @@ import socket
 from .pair import PORT
 
 SERVICE = "_cjbrain._tcp"
-log = logging.getLogger("g.discovery")
+log = logging.getLogger("cj.discovery")
 
 
 async def announce() -> None:

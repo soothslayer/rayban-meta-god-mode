@@ -21,6 +21,16 @@ class Store(context: Context) {
         get() = prefs.getBoolean("wake_during_music", false)
         set(value) = prefs.edit().putBoolean("wake_during_music", value).apply()
 
+    /** Visual memory: the glasses take a photo every few minutes and the brain keeps a short note. Off by default. */
+    var visualMemory: Boolean
+        get() = prefs.getBoolean("visual_memory", false)
+        set(value) = prefs.edit().putBoolean("visual_memory", value).apply()
+
+    /** Real-time voice (Gemini Live): answers start in under a second and you can interrupt. On by default. */
+    var liveVoice: Boolean
+        get() = prefs.getBoolean("live_voice", true)
+        set(value) = prefs.edit().putBoolean("live_voice", value).apply()
+
     fun clear() {
         prefs.edit().clear().apply()
     }

@@ -52,11 +52,19 @@ class MainActivity : ComponentActivity(), GlassesControls {
         setContent { CJTheme { CJApp(Core.store, Core.speaker, listener, Core.glasses, this, ::withMic) } }
     }
 
-    /** Bluetooth for the glasses SDK (Android 12+) and notifications for hands-free (Android 13+). */
+    override fun onResume() {
+        super.onResume()
+        Core.place()  // remember where you are while CJ is open; the background service may not be told
+    }
+
+    /** Bluetooth for the glasses SDK (Android 12+), notifications for hands-free (Android 13+), and location for travel times. */
     private fun askStartupPermissions() {
         val wanted = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(Manifest.permission.BLUETOOTH_CONNECT)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+            add(Manifest.permission.ACCESS_FINE_LOCATION)  // for "how long to reach…"
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            add(Manifest.permission.CALL_PHONE)  // "call this number", after you say yes
         }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (wanted.isEmpty()) Core.glasses.initialize() else startupPermissions.launch(wanted.toTypedArray())
     }

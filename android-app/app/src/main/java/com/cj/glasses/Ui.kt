@@ -330,6 +330,8 @@ fun SetupScreen(store: Store, pairing: Pairing?, brain: BrainClient?, glasses: G
     var message by remember { mutableStateOf<String?>(null) }
     var manual by remember { mutableStateOf(false) }
     var duringMusic by remember { mutableStateOf(store.wakeDuringMusic) }
+    var visualMemory by remember { mutableStateOf(store.visualMemory) }
+    var liveVoice by remember { mutableStateOf(store.liveVoice) }
 
     fun scan() {
         val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
@@ -396,6 +398,32 @@ fun SetupScreen(store: Store, pairing: Pairing?, brain: BrainClient?, glasses: G
                          else "Off: music stays full quality; tap Talk in the notification to ask CJ.")
                 }
                 Switch(checked = duringMusic, onCheckedChange = { duringMusic = it; store.wakeDuringMusic = it })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Real-time voice")
+                    Hint(if (liveVoice) "On: answers start in under a second and you can talk over CJ. Uses Gemini's own voice."
+                         else "Off: CJ records each question, then answers in the Azure voice (Olivia).")
+                }
+                Switch(checked = liveVoice, onCheckedChange = { liveVoice = it; store.liveVoice = it })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Visual memory")
+                    Hint(if (visualMemory) "On: a photo every 5 minutes; only a short note is kept on your laptop, never the photo."
+                         else "Off. When on, ask \"what was that café I walked past?\" Say \"pause visual memory\" any time.")
+                }
+                Switch(checked = visualMemory, onCheckedChange = { visualMemory = it; store.visualMemory = it })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Phone agent")
+                    Hint(if (AgentService.instance != null) "On: \"book me an Uber home\", \"order my usual chai on Swiggy\". CJ asks before anything is paid."
+                         else "Off. Lets CJ use apps for you. Turn on \"CJ phone agent\" in Accessibility settings.")
+                }
+                TextButton(onClick = {
+                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }) { Text("Settings") }
             }
             Hint("Say \"bye\" to end a conversation, \"stop listening\" to turn hands-free off. There's also a CJ tile in Quick Settings.")
         }

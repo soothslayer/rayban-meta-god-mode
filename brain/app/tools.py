@@ -5,8 +5,10 @@ into a spoken answer in the user's language. Results are data, not instructions 
 """
 from __future__ import annotations
 
+import contextvars
 import datetime
 import os
+import time
 import urllib.parse
 import xml.etree.ElementTree as ElementTree
 from zoneinfo import ZoneInfo
@@ -26,6 +28,48 @@ WEATHER = {0: "clear sky", 1: "mostly clear", 2: "partly cloudy", 3: "overcast",
 
 class ToolError(Exception):
     pass
+
+
+# Where the user is right now ({"lat": .., "lon": ..}), sent by the phone with each question when allowed.
+LOCATION: contextvars.ContextVar[dict | None] = contextvars.ContextVar("location", default=None)
+ROUTERS = {"driving": "routed-car", "walking": "routed-foot", "cycling": "routed-bike"}
+
+
+async def _geocode(place: str, near: dict | None) -> dict:
+    params = {"q": place, "format": "json", "limit": 1}
+    if near:  # prefer matches around the user ("the airport" means the nearest one)
+        lat, lon = near["lat"], near["lon"]
+        params["viewbox"] = f"{lon - 0.6},{lat + 0.6},{lon + 0.6},{lat - 0.6}"
+    hits = (await _get("https://nominatim.openstreetmap.org/search", **params)).json()
+    if not hits and near:
+        hits = (await _get("https://nominatim.openstreetmap.org/search", q=place, format="json", limit=1)).json()
+    if not hits:
+        raise ToolError(f"couldn't find {place} on the map")
+    return {"lat": float(hits[0]["lat"]), "lon": float(hits[0]["lon"]), "name": hits[0].get("display_name", place)}
+
+
+async def travel_time(destination: str, mode: str = "driving") -> str:
+    """Route time and distance from the user's location (OpenStreetMap; no live traffic)."""
+    try:
+        here = LOCATION.get()
+        if not here:
+            raise ToolError("the phone didn't share its location: ask the user to allow location for CJ")
+        if not destination.strip():
+            raise ToolError("no destination given")
+        mode = mode if mode in ROUTERS else "driving"
+        there = await _geocode(destination, here)
+        coords = f"{here['lon']},{here['lat']};{there['lon']},{there['lat']}"
+        route = (await _get(f"https://routing.openstreetmap.de/{ROUTERS[mode]}/route/v1/{mode}/{coords}",
+                            overview="false")).json()
+        if route.get("code") != "Ok" or not route.get("routes"):
+            raise ToolError(f"no {mode} route found to {destination}")
+        r = route["routes"][0]
+        minutes, km = round(r["duration"] / 60), r["distance"] / 1000
+        link = f"https://www.google.com/maps/dir/?api=1&destination={there['lat']},{there['lon']}&travelmode={mode}"
+        return (f"Destination: {there['name'][:160]}\n{mode.title()}: about {minutes} minutes, {km:.1f} km "
+                f"(OpenStreetMap route, without live traffic; real times can be longer at rush hour)\nMap: {link}")
+    except (ToolError, httpx.HTTPError, ValueError, KeyError) as e:
+        return f"LOOKUP FAILED: {e}"
 
 
 async def _get(url: str, **params) -> httpx.Response:
@@ -110,8 +154,24 @@ async def briefing(place: str = "") -> str:
     return "\n".join(parts)
 
 
+# Seconds a lookup stays fresh: a follow-up ("and tomorrow?") reuses the answer instead of fetching again.
+FRESH = {"weather": 600, "news": 600, "wiki": 86400, "exchange_rate": 1800}
+_cache: dict[str, tuple[float, str]] = {}
+
+
 async def run(name: str, args: dict) -> str:
     """Runs a lookup tool. Returns the fact sheet, or a note saying why it failed (the model explains it)."""
+    key = f"{name}:{sorted((k, str(v).strip().lower()) for k, v in args.items())}"
+    hit = _cache.get(key)
+    if hit and time.monotonic() - hit[0] < FRESH.get(name, 0):
+        return hit[1]
+    result = await _run(name, args)
+    if name in FRESH and not result.startswith("LOOKUP FAILED"):
+        _cache[key] = (time.monotonic(), result)
+    return result
+
+
+async def _run(name: str, args: dict) -> str:
     try:
         if name == "weather":
             return await weather(str(args.get("place", "")))

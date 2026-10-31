@@ -14,6 +14,7 @@ from collections import Counter
 from . import config
 
 MAX_NOTES = 2000
+MAX_SEEN = 1500  # visual memory adds ~100 notes a day: it gets its own budget, so it never pushes out what you saved
 
 
 def _path():
@@ -28,7 +29,10 @@ def load() -> list[dict]:
 
 
 def _save(notes: list[dict]) -> None:
-    _path().write_text(json.dumps(notes[-MAX_NOTES:], ensure_ascii=False, indent=1))
+    seen = [n for n in notes if n["kind"] == "seen"][-MAX_SEEN:]
+    mine = [n for n in notes if n["kind"] != "seen"][-MAX_NOTES:]
+    keep = {id(n) for n in seen + mine}
+    _path().write_text(json.dumps([n for n in notes if id(n) in keep], ensure_ascii=False, indent=1))
     _path().chmod(0o600)
 
 
@@ -66,6 +70,12 @@ def search(query: str, k: int = 5, notes: list[dict] | None = None) -> list[dict
             scored.append((score / (1 + age * 0.01), note))
     scored.sort(key=lambda s: -s[0])
     return [n for _, n in scored[:k]]
+
+
+def seen_since(hours: int) -> list[dict]:
+    """What the glasses noticed in the last few hours, oldest first (at most 40)."""
+    since = (datetime.datetime.now() - datetime.timedelta(hours=hours)).isoformat(timespec="minutes")
+    return [m for m in load() if m["kind"] == "seen" and m["t"] >= since][-40:]
 
 
 def recent(n: int = 12) -> list[dict]:

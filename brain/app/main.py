@@ -12,11 +12,12 @@ from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocke
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 
-from . import config, discovery, memory, tts
+from . import agent, config, discovery, live, memory, notes, nudges, phone_agent, tools, tts
 from .events import bus
 from .models.base import Attachment
 from .models.router import router
 from .modes import assistant
+from .modes.common import ask_json
 
 
 @asynccontextmanager
@@ -46,6 +47,12 @@ class Turn(BaseModel):
     text: str
 
 
+class Location(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    acc: float | None = Field(default=None, ge=0)  # metres; network fixes can be 500 m off
+
+
 class AskIn(BaseModel):
     """A typed question (text), or a spoken one (audio_b64, a WAV clip) that the model transcribes."""
     text: str = Field(default="", max_length=4000)
@@ -56,6 +63,7 @@ class AskIn(BaseModel):
     audio_b64: str | None = Field(default=None, max_length=4_000_000)  # about 90 s of 16 kHz mono
     audio_mime: str = "audio/wav"
     voice: bool = False  # also return the answer as speech (voice_b64 in the reply)
+    location: Location | None = None  # the phone's position, for "how long to reach…"
 
     @model_validator(mode="after")
     def text_or_audio(self):
@@ -73,6 +81,7 @@ async def health():
 async def ask(body: AskIn):
     started = time.monotonic()
     history = [t.model_dump() for t in body.history]
+    tools.LOCATION.set(body.location.model_dump(exclude_none=True) if body.location else None)
     try:
         if body.audio_b64 and not body.text.strip():
             out = await assistant.ask_spoken(Attachment(body.audio_b64, body.audio_mime), history)
@@ -85,7 +94,7 @@ async def ask(body: AskIn):
         bus.emit("error", where="ask", error=str(e)[:200])
         raise HTTPException(502, f"no AI provider could answer: {e}"[:300]) from e
     if body.voice and out["spoken"]:
-        audio = await tts.speak(out["spoken"])
+        audio = await tts.speak(out["spoken"], out.get("language"))
         if audio:
             out["voice_b64"] = base64.b64encode(audio).decode()
     out["ms"] = int((time.monotonic() - started) * 1000)
@@ -93,6 +102,100 @@ async def ask(body: AskIn):
         bus.emit("needs_photo", mode=body.mode, text=out["heard"], ms=out["ms"])
     else:
         bus.emit("answer", mode=body.mode, spoken=out["spoken"], language=out["language"], ms=out["ms"])
+    return out
+
+
+class DictateIn(BaseModel):
+    session: str = Field(min_length=1, max_length=40)
+    audio_b64: str = Field(min_length=1, max_length=4_000_000)
+    audio_mime: str = "audio/wav"
+
+
+@app.post("/api/notes/dictate", dependencies=[Depends(require_auth)])
+async def notes_dictate(body: DictateIn):
+    """One chunk of "start taking notes". When the user says "stop taking notes", the reply has the summary."""
+    try:
+        out = await assistant.dictate(Attachment(body.audio_b64, body.audio_mime), body.session)
+    except Exception as e:
+        bus.emit("error", where="dictate", error=str(e)[:200])
+        raise HTTPException(502, f"couldn't transcribe: {e}"[:300]) from e
+    bus.emit("dictation", heard=out["heard"][:200], stopped=out["stopped"])
+    if out["stopped"] and out.get("spoken"):
+        audio = await tts.speak(out["spoken"])
+        if audio:
+            out["voice_b64"] = base64.b64encode(audio).decode()
+    return out
+
+
+@app.get("/api/notes", dependencies=[Depends(require_auth)])
+async def notes_list():
+    return {"notes": notes.load()}
+
+
+class GlanceIn(BaseModel):
+    image_b64: str = Field(min_length=1, max_length=8_000_000)
+    mime: str = "image/jpeg"
+
+
+_last_glance = ""
+
+
+@app.post("/api/glance", dependencies=[Depends(require_auth)])
+async def glance(body: GlanceIn):
+    """Visual memory (opt-in): one automatic photo. Only a short note is kept; the photo itself is not stored."""
+    global _last_glance
+    note = await assistant.glance(Attachment(body.image_b64, body.mime), _last_glance)
+    if note:
+        _last_glance = note
+        bus.emit("glance", note=note)
+    return {"kept": bool(note)}
+
+
+class HearIn(BaseModel):
+    audio_b64: str = Field(min_length=1, max_length=4_000_000)
+    audio_mime: str = "audio/wav"
+
+
+@app.post("/api/hear", dependencies=[Depends(require_auth)])
+async def hear(body: HearIn):
+    """Just what was said (no answer): the phone agent's "should I?" questions."""
+    data, _ = await ask_json("transcribe", assistant.TRANSCRIBE, [{"role": "user", "text": "(audio)"}],
+                             Attachment(body.audio_b64, body.audio_mime))
+    return {"heard": str(data.get("heard", "")).strip()}
+
+
+class AgentStepIn(BaseModel):
+    goal: str = Field(min_length=1, max_length=500)
+    screen: list[dict] = Field(default_factory=list, max_length=400)
+    history: list[str] = Field(default_factory=list, max_length=60)
+    approved: str = Field(default="", max_length=200)  # the risky button the user just said yes to
+
+
+@app.post("/api/agent/step", dependencies=[Depends(require_auth)])
+async def agent_step(body: AgentStepIn):
+    """Phone agent: the next tap, text or question for the goal, given what's on the phone's screen now."""
+    out = await phone_agent.step(body.goal, body.screen, body.history, body.approved)
+    bus.emit("phone_agent", goal=body.goal, step=out.get("do"), say=out.get("say", ""))
+    if out.get("say") and out["do"] in ("done", "ask", "confirm"):
+        audio = await tts.speak(out["say"])
+        if audio:
+            out["voice_b64"] = base64.b64encode(audio).decode()
+    return out
+
+
+class NudgeIn(BaseModel):
+    location: Location
+
+
+@app.post("/api/nudge", dependencies=[Depends(require_auth)])
+async def nudge(body: NudgeIn):
+    """The phone's position while hands-free is on. Returns something to say when the place makes it useful."""
+    out = await nudges.NUDGER.check(body.location.model_dump(exclude_none=True))
+    if out["say"]:
+        bus.emit("nudge", text=out["say"])
+        audio = await tts.speak(out["say"])
+        if audio:
+            out["voice_b64"] = base64.b64encode(audio).decode()
     return out
 
 
@@ -107,6 +210,12 @@ async def speak(body: SpeakIn):
     return {"voice_b64": base64.b64encode(audio).decode() if audio else ""}
 
 
+@app.get("/api/jobs/done", dependencies=[Depends(require_auth)])
+async def jobs_done():
+    """Claude Code jobs that finished since the phone last asked; the phone reads each summary aloud once."""
+    return {"jobs": [{"project": j.project, "state": j.state, "summary": j.summary} for j in agent.take_finished()]}
+
+
 @app.get("/api/memory", dependencies=[Depends(require_auth)])
 async def memory_list():
     return {"notes": memory.load()}
@@ -115,6 +224,26 @@ async def memory_list():
 @app.get("/dashboard")
 async def dashboard():
     return FileResponse(DASHBOARD)
+
+
+@app.websocket("/ws/live")
+async def ws_live(ws: WebSocket, token: str = ""):
+    """Real-time conversation (and live translation) with Gemini Live; see live.py. The phone sends its pairing
+    token as a header, so it doesn't show up in the server's request log."""
+    token = ws.headers.get("authorization", "").removeprefix("Bearer ").strip() or token
+    if not _valid(token):
+        await ws.close(code=4401)
+        return
+    await ws.accept()
+    try:
+        await live.Bridge(ws).run()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        try:
+            await ws.close()
+        except (RuntimeError, WebSocketDisconnect):
+            pass  # the phone already hung up
 
 
 @app.websocket("/ws/dashboard")

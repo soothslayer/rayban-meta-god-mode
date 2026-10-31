@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">CJ</string>
+    <string name="agent_description">Lets CJ do things in apps for you when you ask ("book me an Uber home"). CJ reads the screen only while it is doing a task you asked for, asks you before anything is paid or booked, and never types passwords, OTPs or card details.</string>
 </resources>
