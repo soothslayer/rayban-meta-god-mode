@@ -65,8 +65,32 @@ The app captures a fresh JPEG frame from the supported streaming API, rather
 than the experimental high-resolution capture API. A photo is sent only when
 attached to a question or requested during live voice. Camera streaming stops
 when the app backgrounds. Already-started voice sessions use iOS's audio
-background mode, but interruptions, route changes, or connection loss end the
-session and require tapping Talk again. There is no background wake-word service.
+background mode. Route changes rebuild the audio paths; interruptions, an
+unrecoverable audio change, or connection loss end the session and pause wake
+listening until it is enabled again.
+
+## Listen for CJ
+
+After pairing the Mac, enable **Listen for CJ** in Conversation or Setup and allow
+Speech Recognition and microphone access. Say **CJ** or **Hey CJ**, followed by
+your question. The detector uses Apple's on-device English speech recognition;
+it refuses to enable if on-device recognition is unavailable. It does not send
+idle audio or transcripts to a recognition server. A bounded in-memory buffer
+retains the wake phrase and the following question while the Mac connects.
+
+Saying **bye** or tapping **End conversation** returns to wake listening. The same
+microphone capture continues through both modes. Turning **Listen for CJ** off
+ends the active conversation and releases the microphone. The switch defaults
+to off on each launch; opening the app alone does not start recording.
+
+An active audio session may continue while the phone is locked, but iOS may stop
+it after interruptions or resource pressure. A force-quit app cannot hear the wake
+word. The app keeps the microphone active while armed, which increases battery
+use and can interrupt music or change Bluetooth audio quality. This is an opt-in
+listening session, not access to the glasses' low-power “Hey Meta” detector.
+Recognition restarts periodically without reopening the microphone. Repeated
+recognizer failures, audio interruptions, or connection errors pause wake mode.
+Long-running lock-screen behavior and wake accuracy require hardware validation.
 
 ## Feature coverage
 
@@ -83,7 +107,7 @@ session and require tapping Talk again. There is no background wake-word service
 | Timers | Local notifications, subject to permission |
 | Calls | Explicit user-tapped handoff to the Phone app |
 | Android phone agent | Unsupported; iOS cannot use Android accessibility services |
-| Always-on “CJ” wake word | Not implemented; tap Talk to start |
+| “CJ” wake word | Opt-in on-device recognition during an active microphone session; no wake after force-quit |
 | Continuous meeting dictation, split-output translation | Not implemented; requests reported as unsupported |
 | Automatic visual memory, location nudges, job polling, Bonjour rediscovery | Not implemented; pair again if the Mac's address changes |
 
@@ -122,21 +146,27 @@ Run the original backend tests with `cd brain && .venv/bin/python -m pytest -q`.
 
 For a lighter check that does not start Simulator, run
 `cd ios-app && swift test --jobs 2`. This exercises the same pairing and HTTP
-client sources on macOS. Verification passed all 8 core tests and all 151
+client sources on macOS, plus wake-phrase matching and bounded audio handoff.
+Verification passed all 13 core tests and all 151
 backend tests, including explicit speech-language preferences. The simulator UI run was blocked by the simulator test
 runner stalling under memory pressure, so a compile result alone is not a UI or
 hardware test result.
 
 The signed iPhone build was installed and launched on a physical iPhone 16 Plus.
-The user confirmed microphone transcription and audible replies after fixing
-audio startup notifications. Full camera behavior and longer sessions remain to
-be tested on hardware.
+The user confirmed microphone transcription and CJ wake-word activation. Longer
+sessions and wake listening while locked still need hardware verification.
 
 Camera preview was subsequently confirmed on physical glasses after installing a
 pending glasses update. CJ now waits for the SDK's device selector to become
-ready before starting the camera. A later hardware test found silent live replies
-despite working transcription and visible response text; playback is still under
-investigation. A direct Mac service test returned non-silent reply audio.
+ready before starting the camera. Live replies were silent on the first Talk
+session after launch but audible after ending and starting another conversation.
+A direct Mac service test returned non-silent reply audio. Audio startup now waits
+for the selected input and output route to settle, explicitly matches the
+voice-processing I/O formats, and checks playback with a silent buffer before
+uploading microphone audio. Route changes rebuild both audio paths and retain
+unplayed reply buffers. The user confirmed that the first reply after opening the
+updated app is audible through the glasses with wake listening off, without ending
+and restarting the conversation.
 
 The checked-in project builds without XcodeGen. After adding/removing source files
 or editing project settings, regenerate it with:

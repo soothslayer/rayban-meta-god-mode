@@ -30,6 +30,9 @@ struct ContentView: View {
             guard let message else { return }
             Task { @MainActor in errorMessage = message; showingError = true }
         }
+        .onChange(of: live.active) { _, active in
+            if active { tab = 0 }
+        }
         .alert("CJ needs your attention", isPresented: $showingError) {
             Button("OK") { model.error = nil; glasses.error = nil }
         } message: { Text(errorMessage) }
@@ -158,6 +161,15 @@ struct ContentView: View {
             if model.pairing == nil {
                 Text("First, connect your Mac. Tap Talk to open Setup.")
                     .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Toggle("Listen for CJ", isOn: Binding(get: { model.wakeWordEnabled }, set: model.setWakeWordEnabled))
+                    .font(.subheadline).tint(mint)
+                    .disabled(model.busy || (live.active && !model.wakeWordEnabled))
+                    .accessibilityIdentifier("conversation-wake-toggle")
+                if model.wakeWordEnabled {
+                    Text(model.wakeWordStatus).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("wake-word-status")
+                }
             }
         }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 10).background(.ultraThinMaterial)
             .onChange(of: photoItem) { _, item in

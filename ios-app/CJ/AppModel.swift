@@ -14,6 +14,8 @@ final class AppModel: ObservableObject {
     @Published var pendingNumber: String?
     @Published var attachedImage: Data?
     @Published var speakReplies = true
+    @Published private(set) var wakeWordEnabled = false
+    @Published private(set) var wakeWordStatus = "Wake listening is off"
     @Published var transcriptionLanguage = UserDefaults.standard.string(forKey: "speechLanguage") ?? "en-US" {
         didSet { UserDefaults.standard.set(transcriptionLanguage, forKey: "speechLanguage") }
     }
@@ -23,6 +25,8 @@ final class AppModel: ObservableObject {
     private var player: AVAudioPlayer?
     private var speechOwner: UUID?
     private var request: Task<Void, Never>?
+    private let wakeWord = WakeWordListener()
+    private var wakeResume: Task<Void, Never>?
     private var generation = UUID()
     let uiTesting = ProcessInfo.processInfo.arguments.contains("--uitesting")
 
@@ -37,10 +41,32 @@ final class AppModel: ObservableObject {
             if !said.isEmpty { self?.append("assistant", said) }
         }
         live.onFailure = { [weak self] in self?.error = $0 }
+        live.onStopped = { [weak self] resume, capture in
+            guard let self else { capture?.stop(); return }
+            if resume, self.wakeWordEnabled { self.resumeWakeListening(using: capture) }
+            else {
+                capture?.stop()
+                if !resume { self.disableWakeWord(status: "Wake listening paused after an interruption. Enable it again when ready.") }
+            }
+        }
         live.onPhone = { [weak self] in self?.handle($0) }
         live.photo = { [weak self] in
             guard let self else { throw CancellationError() }
             return try await self.glasses.capture()
+        }
+        wakeWord.onState = { [weak self] in self?.wakeWordStatus = $0 }
+        wakeWord.onFailure = { [weak self] message in
+            self?.disableWakeWord(status: "Wake listening stopped")
+            self?.error = message
+        }
+        wakeWord.onWake = { [weak self] capture in
+            guard let self, let pairing = self.pairing, self.wakeWordEnabled, !self.busy, !self.live.active else {
+                capture.stop()
+                return
+            }
+            self.stopSpeaking()
+            self.wakeWordStatus = "In conversation · say “bye” to return to wake listening"
+            self.live.start(pairing: pairing, history: self.turns, transcriptionLanguage: self.transcriptionLanguage, preparedCapture: capture)
         }
     }
 
@@ -48,6 +74,7 @@ final class AppModel: ObservableObject {
 
     func pair(_ candidate: Pairing) async throws {
         guard !busy, !live.active else { throw CJError("End the current conversation before changing your Mac.") }
+        disableWakeWord()
         busy = true
         defer { busy = false }
         let health = try await BrainClient(pairing: candidate).verify()
@@ -60,6 +87,7 @@ final class AppModel: ObservableObject {
 
     func forget() {
         guard !busy, !live.active else { return }
+        disableWakeWord()
         do {
             if !uiTesting { try KeychainStore.delete() }
             pairing = nil; connection = "Mac not paired"; providers = ""
@@ -70,6 +98,7 @@ final class AppModel: ObservableObject {
     func send(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.count <= 4000, !busy, !live.active, let pairing else { return }
+        pauseWakeListening()
         let history = turns
         let image = attachedImage
         attachedImage = nil
@@ -79,7 +108,12 @@ final class AppModel: ObservableObject {
         self.generation = generation
         request = Task { [weak self] in
             guard let self else { return }
-            defer { if self.generation == generation { self.busy = false; self.request = nil } }
+            defer {
+                if self.generation == generation {
+                    self.busy = false; self.request = nil
+                    self.resumeWakeListening()
+                }
+            }
             do {
                 let answer = try await BrainClient(pairing: pairing).ask(text, history: history, image: image)
                 try Task.checkCancellation()
@@ -100,14 +134,61 @@ final class AppModel: ObservableObject {
     func toggleLive() {
         if live.active { live.stop(); return }
         guard !busy, let pairing else { return }
+        wakeResume?.cancel(); wakeResume = nil
+        let capture = wakeWord.takeCapture()
         stopSpeaking()
-        live.start(pairing: pairing, history: turns, transcriptionLanguage: transcriptionLanguage)
+        if wakeWordEnabled { wakeWordStatus = "In conversation · say “bye” to return to wake listening" }
+        live.start(pairing: pairing, history: turns, transcriptionLanguage: transcriptionLanguage, preparedCapture: capture)
+    }
+
+    func setWakeWordEnabled(_ enabled: Bool) {
+        if !enabled {
+            disableWakeWord()
+            // Turning this switch off is an explicit request to release the mic.
+            if live.active { live.stop() }
+            return
+        }
+        guard pairing != nil else { error = "Connect your Mac before enabling Listen for CJ."; return }
+        guard !busy, !live.active else { return }
+        wakeWordEnabled = true
+        live.keepMicrophoneOnStop = true
+        resumeWakeListening()
+    }
+
+    private func disableWakeWord(status: String = "Wake listening is off") {
+        wakeWordEnabled = false
+        live.keepMicrophoneOnStop = false
+        wakeResume?.cancel(); wakeResume = nil
+        wakeWord.stop()
+        wakeWordStatus = status
+    }
+
+    private func pauseWakeListening() {
+        wakeResume?.cancel(); wakeResume = nil
+        wakeWord.stop()
+        if wakeWordEnabled { wakeWordStatus = "Wake listening paused during this reply" }
+    }
+
+    private func resumeWakeListening(using capture: VoiceCapture? = nil) {
+        wakeResume?.cancel(); wakeResume = nil
+        guard wakeWordEnabled, !live.active, !busy else { capture?.stop(); return }
+        if let capture { wakeWord.start(using: capture); return }
+        wakeResume = Task { [weak self] in
+            guard let self else { return }
+            // Do not let CJ's own text-to-speech reply trigger the wake detector.
+            while self.speech.isSpeaking || self.player?.isPlaying == true {
+                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            }
+            guard !Task.isCancelled, self.wakeWordEnabled, !self.live.active, !self.busy else { return }
+            self.wakeWord.start()
+        }
     }
 
     func cancelRequest() {
         generation = UUID()
         request?.cancel(); request = nil; busy = false
         notice = "Stopped waiting for the Mac. An action already received by the Mac may still finish."
+        resumeWakeListening()
     }
 
     func clear() {
