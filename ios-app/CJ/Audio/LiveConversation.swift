@@ -11,8 +11,10 @@ final class LiveConversation: ObservableObject {
     var onTurn: ((String, String) -> Void)?
     var onPhone: ((PhoneAction) -> Void)?
     var onFailure: ((String) -> Void)?
+    var onStopped: ((Bool, VoiceCapture?) -> Void)?
+    var keepMicrophoneOnStop = false
     var photo: (() async throws -> Data)?
-    private let audio = LiveAudio()
+    private var capture: VoiceCapture?
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
     private var receiver: Task<Void, Never>?
@@ -21,8 +23,10 @@ final class LiveConversation: ObservableObject {
     private var timeout: Task<Void, Never>?
     private var generation = UUID()
 
-    func start(pairing: Pairing, history: [Turn], transcriptionLanguage: String) {
-        guard !active else { return }
+    func start(pairing: Pairing, history: [Turn], transcriptionLanguage: String, preparedCapture: VoiceCapture? = nil) {
+        guard !active else { preparedCapture?.stop(); return }
+        capture = preparedCapture
+        capture?.onFailure = { [weak self] in self?.fail($0) }
         active = true
         heard = ""; said = ""
         status = "Connecting to your Mac…"
@@ -54,15 +58,22 @@ final class LiveConversation: ObservableObject {
                     let message = try await socket.receive()
                     try Task.checkCancellation()
                     switch message {
-                    case .data(let data): try self.audio.play(data)
+                    case .data(let data):
+                        guard let capture = self.capture, capture.started else {
+                            throw CJError("Reply audio arrived before the microphone was ready.")
+                        }
+                        try capture.audio.play(data)
                     case .string(let text):
                         let event = try JSONDecoder().decode(LiveEvent.self, from: Data(text.utf8))
                         if event.type == "ready" {
-                            self.audio.onFailure = { [weak self] in self?.fail($0) }
-                            let frames = try await self.audio.start()
+                            let capture = self.capture ?? VoiceCapture()
+                            self.capture = capture
+                            capture.onFailure = { [weak self] in self?.fail($0) }
+                            try await capture.start()
                             try Task.checkCancellation()
+                            let frames = capture.conversationFrames()
                             self.timeout?.cancel()
-                            self.route = self.audio.route
+                            self.route = capture.audio.route
                             self.status = "Listening · say “bye” to finish"
                             self.sender = Task {
                                 do {
@@ -78,7 +89,7 @@ final class LiveConversation: ObservableObject {
                             self.sender?.cancel()
                             self.status = "Finishing…"
                             for _ in 0..<300 {
-                                if !self.audio.isPlaying { break }
+                                if self.capture?.audio.isPlaying != true { break }
                                 try await Task.sleep(for: .milliseconds(100))
                             }
                             self.stop()
@@ -92,7 +103,7 @@ final class LiveConversation: ObservableObject {
             } catch {
                 if !Task.isCancelled, self.generation == generation {
                     let unauthorized = self.socket?.closeCode.rawValue == 4401
-                    self.fail(unauthorized ? "Pairing was rejected. Scan the Mac’s QR code again." : "Live voice disconnected. Check the Mac’s terminal, pairing token, and Wi-Fi.")
+                    self.fail(unauthorized ? "Pairing was rejected. Scan the Mac’s QR code again." : (error as? CJError)?.localizedDescription ?? "Live voice disconnected. Check the Mac’s terminal, pairing token, and Wi-Fi.")
                 }
             }
         }
@@ -106,7 +117,7 @@ final class LiveConversation: ObservableObject {
             onTurn?(event.heard ?? heard, event.said ?? said)
             heard = ""; said = ""
             status = "Listening · say “bye” to finish"
-        case "interrupted": audio.interrupt(); said = ""; status = "Listening…"
+        case "interrupted": capture?.audio.interrupt(); said = ""; status = "Listening…"
         case "error": fail(event.text ?? "The Mac couldn’t start live voice.")
         case "phone":
             if let action = event.action {
@@ -133,18 +144,24 @@ final class LiveConversation: ObservableObject {
         }
     }
 
-    private func fail(_ message: String) { stop(); onFailure?(message) }
+    private func fail(_ message: String) { stop(resumeWake: false); onFailure?(message) }
 
-    func stop() {
+    func stop(resumeWake: Bool = true) {
+        let wasActive = active
         generation = UUID()
         receiver?.cancel(); sender?.cancel(); photoTask?.cancel(); timeout?.cancel()
         receiver = nil; sender = nil; photoTask = nil; timeout = nil
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         session?.invalidateAndCancel(); session = nil
-        audio.stop()
+        let retainedCapture = keepMicrophoneOnStop && resumeWake && capture?.started == true ? capture : nil
+        if let retainedCapture { retainedCapture.prepareForWakeWord() }
+        else { capture?.stop() }
+        capture = nil
         active = false
         status = "Ready when you are"
         heard = ""; said = ""
+        if wasActive { onStopped?(resumeWake, retainedCapture) }
+        else { retainedCapture?.stop() }
     }
 }

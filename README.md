@@ -8,7 +8,7 @@ It reuses the Python brain and supports QR/manual pairing, text and photo
 questions, live voice over Bluetooth, and Meta glasses camera frames through DAT 1.0.1.
 
 See the [iOS setup, supported features, and verification guide](ios-app/README.md).
-The iOS port does not include Android accessibility automation or an always-on wake word.
+The iOS port includes opt-in, on-device “CJ” wake listening while its microphone session is active. It does not include Android accessibility automation or wake after the app is force-quit.
 The upstream Android app remains available below.
 
 ---

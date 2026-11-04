@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A70B320E9E1348FE98B10001 /* WakeWordSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10002 /* WakeWordSupport.swift */; };
+		A70B320E9E1348FE98B10003 /* VoiceCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10004 /* VoiceCapture.swift */; };
+		A70B320E9E1348FE98B10005 /* WakeWordListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10006 /* WakeWordListener.swift */; };
+		A70B320E9E1348FE98B10007 /* WakeWordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10008 /* WakeWordTests.swift */; };
 		01A4D3B7CB14BCC4852FFFE7 /* BrainClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552B7002838013F052FED71B /* BrainClient.swift */; };
 		0E126F786F6AE12927FF1A5D /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70946D7E35C93E13F0188B14 /* KeychainStore.swift */; };
 		125D4E51A6D549F3BABAD8FE /* QRScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6F885F9C7E17B8A184366E /* QRScanner.swift */; };
@@ -44,6 +48,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A70B320E9E1348FE98B10002 /* WakeWordSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordSupport.swift; sourceTree = "<group>"; };
+		A70B320E9E1348FE98B10004 /* VoiceCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCapture.swift; sourceTree = "<group>"; };
+		A70B320E9E1348FE98B10006 /* WakeWordListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordListener.swift; sourceTree = "<group>"; };
+		A70B320E9E1348FE98B10008 /* WakeWordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordTests.swift; sourceTree = "<group>"; };
 		1274BC91050EADA2923F407F /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		2FDB4677621CB3C7A97DBEB4 /* CJUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CJUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3A5676C7CFB9B03EA5D6864A /* LiveAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAudio.swift; sourceTree = "<group>"; };
@@ -91,6 +99,7 @@
 		751C5251ABF7C975BF87E49C /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				A70B320E9E1348FE98B10002 /* WakeWordSupport.swift */,
 				552B7002838013F052FED71B /* BrainClient.swift */,
 				70946D7E35C93E13F0188B14 /* KeychainStore.swift */,
 				873E3AAF109780BD33BD1FA4 /* Pairing.swift */,
@@ -101,6 +110,7 @@
 		775243D21A72FBBF0EE6D128 /* CJTests */ = {
 			isa = PBXGroup;
 			children = (
+				A70B320E9E1348FE98B10008 /* WakeWordTests.swift */,
 				E641698DB8DC451AE4EA1FC2 /* BrainClientTests.swift */,
 				66E8D8E0F5D048B74C6A5DCD /* PairingTests.swift */,
 			);
@@ -128,6 +138,8 @@
 		A95F450E6435B40385904CB1 /* Audio */ = {
 			isa = PBXGroup;
 			children = (
+				A70B320E9E1348FE98B10004 /* VoiceCapture.swift */,
+				A70B320E9E1348FE98B10006 /* WakeWordListener.swift */,
 				3A5676C7CFB9B03EA5D6864A /* LiveAudio.swift */,
 				76982547AE30D9E90B987320 /* LiveConversation.swift */,
 			);
@@ -298,6 +310,7 @@
 			files = (
 				562E2BE59D3855175162306F /* BrainClientTests.swift in Sources */,
 				70D40246582F5D0595B5AC22 /* PairingTests.swift in Sources */,
+				A70B320E9E1348FE98B10007 /* WakeWordTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -305,6 +318,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A70B320E9E1348FE98B10001 /* WakeWordSupport.swift in Sources */,
+				A70B320E9E1348FE98B10003 /* VoiceCapture.swift in Sources */,
+				A70B320E9E1348FE98B10005 /* WakeWordListener.swift in Sources */,
 				96AB27BAA68B3DF508AE8DF5 /* AppModel.swift in Sources */,
 				01A4D3B7CB14BCC4852FFFE7 /* BrainClient.swift in Sources */,
 				FC2A09A65997E1B6223DC99E /* CJApp.swift in Sources */,
