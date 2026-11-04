@@ -132,6 +132,12 @@ The user confirmed microphone transcription and audible replies after fixing
 audio startup notifications. Full camera behavior and longer sessions remain to
 be tested on hardware.
 
+Camera preview was subsequently confirmed on physical glasses after installing a
+pending glasses update. CJ now waits for the SDK's device selector to become
+ready before starting the camera. A later hardware test found silent live replies
+despite working transcription and visible response text; playback is still under
+investigation. A direct Mac service test returned non-silent reply audio.
+
 The checked-in project builds without XcodeGen. After adding/removing source files
 or editing project settings, regenerate it with:
 

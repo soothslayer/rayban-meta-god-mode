@@ -174,20 +174,25 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 24) {
                 Image(systemName: "eyeglasses").font(.system(size: 80, weight: .light)).foregroundStyle(mint).frame(maxWidth: .infinity).padding(.vertical, 30)
                 Text("A different point of view.").font(.largeTitle.bold())
-                Text("\(glasses.status) · \(glasses.deviceCount) available").foregroundStyle(.secondary)
+                Text("\(glasses.status) · \(glasses.deviceCount) discovered").foregroundStyle(.secondary)
                 Text("Pair your glasses in the Meta AI app and enable Developer Mode, then link CJ here. Bluetooth audio also works without camera access.").foregroundStyle(.secondary)
                 if glasses.registered {
                     if let frame = glasses.frame { Image(uiImage: frame).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 20)) }
                     Button(glasses.cameraActive || glasses.starting ? "Stop camera" : "Preview glasses camera") {
                         if glasses.cameraActive || glasses.starting { glasses.stop() }
-                        else { Task { do { try await glasses.start() } catch { model.error = error.localizedDescription } } }
+                        else { Task {
+                            do { try await glasses.start() }
+                            catch is CancellationError { }
+                            catch { model.error = error.localizedDescription }
+                        } }
                     }.buttonStyle(.borderedProminent).foregroundStyle(.black)
                     Button("Attach what I’m looking at", systemImage: "camera") {
                         Task {
                             do { try model.attach(await glasses.capture()); tab = 0 }
+                            catch is CancellationError { }
                             catch { model.error = error.localizedDescription }
                         }
-                    }.buttonStyle(.bordered).disabled(model.busy || live.active)
+                    }.buttonStyle(.bordered).disabled(model.busy || live.active || glasses.starting)
                 } else {
                     Button("Link with Meta AI", systemImage: "link") { Task { await glasses.register() } }
                         .buttonStyle(.borderedProminent).foregroundStyle(.black)
