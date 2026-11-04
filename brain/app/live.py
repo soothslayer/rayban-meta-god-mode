@@ -132,11 +132,22 @@ class Bridge:
             history = "".join(f"\n{t.get('role')}: {t.get('text', '')[:300]}" for t in self.start.get("history", [])[-8:])
             system = persona() + LIVE + memory.prompt() + (f"\nConversation so far:{history}" if history else "")
             tools_ = [{"functionDeclarations": FUNCTIONS}]
+        # An explicit client preference prevents short English phrases being
+        # misidentified as another language. Older clients keep automatic detection.
+        language = self.start.get("transcription_language", "")
+        supported_languages = {"en-US": "English", "hi-IN": "Hindi", "es-ES": "Spanish",
+                               "fr-FR": "French", "de-DE": "German", "ja-JP": "Japanese"}
+        transcription = {}
+        if self.mode == "assistant" and isinstance(language, str) and language in supported_languages:
+            transcription["languageCodes"] = [language]
+            system += (f"\nThe user's preferred spoken language is {supported_languages[language]}. "
+                       "Expect speech in that language and reply in it unless the user explicitly requests another. "
+                       "Transcribe the user's words faithfully; do not translate their transcript.")
         setup = {"model": f"models/{MODEL}",
                  "generationConfig": {"responseModalities": ["AUDIO"],
                                       "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": VOICE}}}},
                  "systemInstruction": {"parts": [{"text": system}]}, "tools": tools_,
-                 "inputAudioTranscription": {}, "outputAudioTranscription": {},
+                 "inputAudioTranscription": transcription, "outputAudioTranscription": {},
                  # Answer sooner after you stop: ~0.5 s of quiet ends your turn instead of the default ~1 s.
                  "realtimeInputConfig": {"automaticActivityDetection": {
                      "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH", "silenceDurationMs": 500}},

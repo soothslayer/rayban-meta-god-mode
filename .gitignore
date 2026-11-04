@@ -30,3 +30,12 @@ config.json
 # Audio clips made by tools/wake_test.py
 *.wav
 *.aiff
+
+# iOS / Xcode
+ios-app/build/
+ios-app/DerivedData/
+ios-app/.build/
+ios-app/.swiftpm/
+*.xcuserstate
+xcuserdata/
+*.xcresult/

@@ -1,0 +1,169 @@
+# CJ for iOS
+
+A native SwiftUI companion for the existing CJ Mac brain. Requires iOS 17.2+ and
+Xcode 26.4+; developed with Xcode 27.1. Meta's official Device Access Toolkit is
+pinned to **1.0.1**, including its exact revision in `Package.resolved`.
+
+## Build and run
+
+1. Open `ios-app/CJ.xcodeproj` in Xcode. Let Swift Package Manager resolve Meta's SDK.
+2. Choose the **CJ** scheme and an iPhone simulator, then Run. No Apple account is
+   required for Simulator. Text chat and pairing can be exercised without glasses.
+3. For a physical iPhone, select your Apple development team under
+   **CJ → Signing & Capabilities** and change the bundle identifier if needed.
+   Enable Developer Mode on the iPhone, choose it as the destination, and Run.
+4. On the Mac, start the existing brain:
+
+   ```sh
+   cd ~/git/rayban-meta-god-mode/brain
+   ./set-key.sh gemini
+   ./run.sh
+   ```
+
+   The brain needs Python 3.10+. If `python3` is Apple's older 3.9, create its
+   environment with a newer Python first:
+
+   ```sh
+   python3.12 -m venv .venv
+   .venv/bin/pip install -r requirements.txt
+   ```
+
+5. In **Setup**, scan the terminal's QR code, review the address, then tap
+   **Connect to Mac**. Manual address/token entry and pasted JSON also work.
+   The token is the `token` field in `~/.cj/config.json`; do not share that file.
+   The app verifies both the server identity and token before saving to Keychain.
+6. Use **Talk to CJ** for live voice, or type a question. Gemini Live requires a
+   Gemini key on the Mac. With no key, the brain's mock provider can exercise text
+   chat, but it is not an AI service. Phone audio and any connected Bluetooth HFP
+   headset can be used before linking the glasses camera.
+
+Live voice defaults to **English**. Change **Setup → Speech language** to use a
+different supported language or automatic detection. The app sends this preference
+to the brain, which supplies Gemini's transcription language hint and preferred
+reply language. Restart an older running brain after updating this fork. Hints
+improve recognition; they do not guarantee perfect transcripts.
+
+The iPhone and Mac must be able to reach each other over Wi-Fi. Use a trusted
+local network for the original brain's HTTP endpoint. The app also supports
+HTTPS/WSS endpoints, preserving ATS protections for internet hosts. Do not expose
+the original HTTP server publicly. API keys remain on the Mac; transcripts,
+microphone audio, and requested photos travel through it to its configured AI
+provider. The app keeps conversation history in memory only.
+
+## Link glasses
+
+Pair the glasses in the Meta AI app and enable its **Developer Mode**. Open CJ's
+**Glasses** tab, tap **Link with Meta AI**, and complete the callback. Preview the
+camera to grant camera permission. Wear the glasses with their arms open.
+
+Developer Mode uses `META_APP_ID = 0`, so no Meta app credentials are needed for
+local development. For other release channels, configure `META_APP_ID`,
+`CLIENT_TOKEN`, and your Apple development team using your own Meta developer
+app. Follow Meta's distribution requirements before distributing a signed build.
+
+The app captures a fresh JPEG frame from the supported streaming API, rather
+than the experimental high-resolution capture API. A photo is sent only when
+attached to a question or requested during live voice. Camera streaming stops
+when the app backgrounds. Already-started voice sessions use iOS's audio
+background mode, but interruptions, route changes, or connection loss end the
+session and require tapping Talk again. There is no background wake-word service.
+
+## Feature coverage
+
+| Feature | iOS implementation |
+| --- | --- |
+| QR, pasted JSON, manual pairing | Yes; token in device-only Keychain; authentication checked |
+| Typed questions and recent conversation context | Yes; existing `/api/ask` protocol |
+| Image questions | Photo picker or a fresh glasses camera frame |
+| Live voice | 16 kHz PCM upload, 24 kHz PCM playback, transcripts, interruption handling |
+| Bluetooth glasses microphone/speaker | Standard iOS HFP route; physical-device validation required |
+| Glasses camera | DAT registration, permission, session lifecycle, preview, fresh-frame capture |
+| Mac tools, TV, smart home, quick notes | Existing brain handles them; integrations and Mac permissions still required |
+| Spoken text replies | Brain-provided audio, with iOS speech synthesis fallback |
+| Timers | Local notifications, subject to permission |
+| Calls | Explicit user-tapped handoff to the Phone app |
+| Android phone agent | Unsupported; iOS cannot use Android accessibility services |
+| Always-on “CJ” wake word | Not implemented; tap Talk to start |
+| Continuous meeting dictation, split-output translation | Not implemented; requests reported as unsupported |
+| Automatic visual memory, location nudges, job polling, Bonjour rediscovery | Not implemented; pair again if the Mac's address changes |
+
+This is an initial iOS port, not full Android feature parity. The Mac brain can
+return phone actions originating from Android-specific tools; the app explicitly
+reports unsupported actions. Hardware audio quality, background behavior, Meta
+registration, and camera capture must be verified with your iPhone and glasses.
+No App Store signing or distribution is configured.
+
+## Verification
+
+Build without a signing identity:
+
+```sh
+xcodebuild -project ios-app/CJ.xcodeproj -scheme CJ \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath ios-app/build CODE_SIGNING_ALLOWED=NO build
+```
+
+Run unit tests and UI tests, including a real HTTP round trip to the existing
+Python brain in forced mock mode:
+
+```sh
+./scripts/test-ios.sh
+```
+
+The script starts a loopback-only fixture on port 18765 with a temporary `CJ_HOME`,
+a test-only token, and empty provider keys. It removes the fixture on exit and
+never reads your real `~/.cj`. Set `CJ_TEST_SIMULATOR` to a simulator UUID or
+`CJ_TEST_PYTHON` to an environment containing the brain's requirements if needed.
+Outside this script, the integration UI test skips when the fixture is absent.
+Unit coverage includes malformed pairing data, auth headers, WS/WSS URLs,
+authentication beyond public health, history bounds, photo encoding, and errors.
+
+Run the original backend tests with `cd brain && .venv/bin/python -m pytest -q`.
+
+For a lighter check that does not start Simulator, run
+`cd ios-app && swift test --jobs 2`. This exercises the same pairing and HTTP
+client sources on macOS. Verification passed all 8 core tests and all 151
+backend tests, including explicit speech-language preferences. The simulator UI run was blocked by the simulator test
+runner stalling under memory pressure, so a compile result alone is not a UI or
+hardware test result.
+
+The signed iPhone build was installed and launched on a physical iPhone 16 Plus.
+The user confirmed microphone transcription and audible replies after fixing
+audio startup notifications. Full camera behavior and longer sessions remain to
+be tested on hardware.
+
+Camera preview was subsequently confirmed on physical glasses after installing a
+pending glasses update. CJ now waits for the SDK's device selector to become
+ready before starting the camera. A later hardware test found silent live replies
+despite working transcription and visible response text; playback is still under
+investigation. A direct Mac service test returned non-silent reply audio.
+
+The checked-in project builds without XcodeGen. After adding/removing source files
+or editing project settings, regenerate it with:
+
+```sh
+xcodegen generate --spec ios-app/project.yml
+```
+
+Regeneration resets manually selected signing settings; reselect your development
+team in Xcode afterward. Avoid regenerating while another person is editing the
+project in Xcode.
+
+`scripts/make-ios-icon.swift` regenerates the app's original procedural icon.
+
+## Architecture and references
+
+- `Core/`: pairing validation, Keychain, and authenticated HTTP requests.
+- `Audio/`: bounded microphone buffering, sample conversion, WebSocket events,
+  echo cancellation, playback, and cancellation cleanup.
+- `Glasses/`: Meta DAT registration and camera session ownership.
+- `AppModel.swift` and `Views/`: conversation, attachments, setup, and explicit
+  handoffs for supported phone actions.
+- [Meta iOS SDK and samples](https://github.com/facebook/meta-wearables-dat-ios)
+- [Meta iOS setup guide](https://github.com/facebook/meta-wearables-dat-ios/blob/main/plugins/mwdat-ios/skills/getting-started/SKILL.md)
+- [Apple local-network ATS configuration](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking)
+- [Apple voice-chat audio mode](https://developer.apple.com/documentation/avfaudio/avaudiosession/mode-swift.struct/voicechat)
+- [Gemini transcription language hints](https://ai.google.dev/api/live#AudioTranscriptionConfig)
+
+Original CJ source and this port use the repository's MIT license. The Meta SDK
+is a separate dependency governed by Meta's own terms; it is not relicensed here.

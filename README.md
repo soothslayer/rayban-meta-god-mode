@@ -1,5 +1,18 @@
 # Ray-Ban Meta GOD MODE
 
+## iOS companion (this fork)
+
+This fork adds a native SwiftUI app in [`ios-app/`](ios-app/README.md). Open
+[`ios-app/CJ.xcodeproj`](ios-app/CJ.xcodeproj) in Xcode to build for iPhone or Simulator.
+It reuses the Python brain and supports QR/manual pairing, text and photo
+questions, live voice over Bluetooth, and Meta glasses camera frames through DAT 1.0.1.
+
+See the [iOS setup, supported features, and verification guide](ios-app/README.md).
+The iOS port does not include Android accessibility automation or an always-on wake word.
+The upstream Android app remains available below.
+
+---
+
 **CJ** is an open-source assistant for Ray-Ban Meta glasses. Say "CJ" and talk. It books your ride, runs your Mac,
 puts Netflix on the TV, switches off the lights and ships your code while your phone stays in your pocket.
 
