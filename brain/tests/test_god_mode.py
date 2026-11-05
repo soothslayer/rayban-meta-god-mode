@@ -115,9 +115,16 @@ def test_claude_code_only_works_in_git_projects(projects):
     assert "couldn't find a project" in ask("ask claude code to fix things in not-a-repo")
 
 
-def test_claude_code_may_not_run_shell_commands():
-    assert "Bash(git status)" in agent.ALLOWED_TOOLS
-    assert "Bash " not in agent.ALLOWED_TOOLS + " " and "Bash(*" not in agent.ALLOWED_TOOLS
+def test_claude_code_runs_with_requested_unrestricted_permissions(projects, monkeypatch):
+    import subprocess
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, '{"result":"Done"}', '')
+    monkeypatch.setattr(agent.subprocess, "run", run)
+    agent._run(agent.Job("test", "portfolio-site", str(projects / "portfolio-site"), "test"), False)
+    assert "--dangerously-skip-permissions" in calls[0]
+    assert "--allowedTools" not in calls[0]
 
 
 # ---- Code help ----------------------------------------------------------------------------------------------

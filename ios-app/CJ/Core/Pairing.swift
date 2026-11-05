@@ -89,4 +89,10 @@ struct LiveEvent: Decodable {
     var number: String?
 }
 
-struct Health: Decodable { let name: String; let ok: Bool; let providers: [String: Bool] }
+struct Health: Decodable {
+    let name: String
+    let ok: Bool
+    let providers: [String: Bool]
+    var assistant: String?
+    var voice_mode: String?
+}

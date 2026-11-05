@@ -67,4 +67,17 @@ final class BrainClientTests: XCTestCase {
         do { _ = try await client().ask("hello", history: [], image: nil); XCTFail("Expected HTTP error") }
         catch { XCTAssertTrue(error.localizedDescription.contains("502")); XCTAssertFalse(error.localizedDescription.contains("secret-api-key")) }
     }
+
+    func testSubscriptionHealthSelectsLocalVoice() async throws {
+        StubProtocol.respond = { _ in (200, #"{"name":"CJ","ok":true,"providers":{"codex":true},"assistant":"codex","voice_mode":"local"}"#) }
+        let health = try await client().health()
+        XCTAssertEqual(health.assistant, "codex")
+        XCTAssertEqual(health.voice_mode, "local")
+    }
+
+    func testSubscriptionSignInErrorIsActionable() async throws {
+        StubProtocol.respond = { _ in (503, #"{"detail":"Sign in on your Mac using codex login."}"#) }
+        do { _ = try await client().ask("hello", history: [], image: nil, assistant: "codex"); XCTFail("Expected sign-in error") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("codex login")) }
+    }
 }

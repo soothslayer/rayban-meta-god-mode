@@ -12,43 +12,28 @@ pinned to **1.0.1**, including its exact revision in `Package.resolved`.
 3. For a physical iPhone, select your Apple development team under
    **CJ → Signing & Capabilities** and change the bundle identifier if needed.
    Enable Developer Mode on the iPhone, choose it as the destination, and Run.
-4. On the Mac, start the existing brain:
-
-   ```sh
-   cd ~/git/rayban-meta-god-mode/brain
-   ./set-key.sh gemini
-   ./run.sh
-   ```
-
-   The brain needs Python 3.10+. If `python3` is Apple's older 3.9, create its
-   environment with a newer Python first:
-
-   ```sh
-   python3.12 -m venv .venv
-   .venv/bin/pip install -r requirements.txt
-   ```
-
-5. In **Setup**, scan the terminal's QR code, review the address, then tap
+4. Open [CJ Bridge on the Mac](../mac-app/README.md). Choose **Codex** to use
+   your ChatGPT sign-in or **Claude Code** to use your Claude sign-in. For
+   Gemini Live, choose **Gemini · API** and configure a Gemini key on the Mac.
+5. In **Setup**, scan the bridge's QR code, review the address, then tap
    **Connect to Mac**. Manual address/token entry and pasted JSON also work.
-   The token is the `token` field in `~/.cj/config.json`; do not share that file.
+   The token is the `token` field in `~/.cj/config.json`. Keep that file private.
    The app verifies both the server identity and token before saving to Keychain.
-6. Use **Talk to CJ** for live voice, or type a question. Gemini Live requires a
-   Gemini key on the Mac. With no key, the brain's mock provider can exercise text
-   chat, but it is not an AI service. Phone audio and any connected Bluetooth HFP
-   headset can be used before linking the glasses camera.
+6. Tap **Talk to CJ** or enable **Listen for CJ**. In subscription mode, allow
+   Speech Recognition so the iPhone can transcribe each question and speak the
+   Mac's reply. You can also type a question. The iPhone speaker and connected
+   Bluetooth headsets work before you link the glasses camera.
 
-Live voice defaults to **English**. Change **Setup → Speech language** to use a
-different supported language or automatic detection. The app sends this preference
-to the brain, which supplies Gemini's transcription language hint and preferred
-reply language. Restart an older running brain after updating this fork. Hints
-improve recognition; they do not guarantee perfect transcripts.
+Voice defaults to **English**. Choose another language in **Setup → Speech
+language**. Subscription voice needs on-device recognition for the selected
+language and uses the phone's locale for the automatic setting.
 
 The iPhone and Mac must be able to reach each other over Wi-Fi. Use a trusted
 local network for the original brain's HTTP endpoint. The app also supports
 HTTPS/WSS endpoints, preserving ATS protections for internet hosts. Do not expose
-the original HTTP server publicly. API keys remain on the Mac; transcripts,
-microphone audio, and requested photos travel through it to its configured AI
-provider. The app keeps conversation history in memory only.
+the original HTTP server publicly. In subscription mode the phone sends transcripts
+and requested photos to the Mac. Gemini Live also streams microphone audio.
+The iPhone keeps conversation history in memory.
 
 ## Link glasses
 

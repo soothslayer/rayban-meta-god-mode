@@ -5,16 +5,19 @@ import asyncio
 import base64
 import secrets
 import time
+from typing import Literal
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 
 from . import agent, config, discovery, live, memory, notes, nudges, phone_agent, tools, tts
 from .events import bus
 from .models.base import Attachment
+from .models import subscription
+from .models.base import ProviderError
 from .models.router import router
 from .modes import assistant
 from .modes.common import ask_json
@@ -64,6 +67,7 @@ class AskIn(BaseModel):
     audio_mime: str = "audio/wav"
     voice: bool = False  # also return the answer as speech (voice_b64 in the reply)
     location: Location | None = None  # the phone's position, for "how long to reach…"
+    assistant: Literal["codex", "claude-code"] | None = None
 
     @model_validator(mode="after")
     def text_or_audio(self):
@@ -74,14 +78,49 @@ class AskIn(BaseModel):
 
 @app.get("/health")
 async def health():
-    return {"name": "CJ", "ok": True, "providers": router.status()}
+    selected = subscription.selected()
+    return {"name": "CJ", "ok": True, "providers": router.status(), "assistant": selected,
+            "voice_mode": "local" if selected in subscription.NAMES else "gemini"}
+
+
+@app.get("/api/bridge/status", dependencies=[Depends(require_auth)])
+async def bridge_status():
+    from .pair import lan_ip, PORT
+    accounts = await asyncio.gather(*(subscription.account(name) for name in subscription.NAMES))
+    return {"assistant": subscription.selected(), "execution": "unrestricted",
+            "url": f"http://{lan_ip()}:{PORT}",
+            "accounts": dict(zip(subscription.NAMES, accounts))}
 
 
 @app.post("/api/ask", dependencies=[Depends(require_auth)])
-async def ask(body: AskIn):
+async def ask(body: AskIn, request: Request):
     started = time.monotonic()
     history = [t.model_dump() for t in body.history]
     tools.LOCATION.set(body.location.model_dump(exclude_none=True) if body.location else None)
+    provider = body.assistant or subscription.selected()
+    if provider in subscription.NAMES:
+        if not body.text.strip():
+            raise HTTPException(422, "Use the updated iPhone app to transcribe speech locally for subscription mode.")
+        image = Attachment(body.image_b64, body.mime) if body.image_b64 else None
+        async def disconnected():
+            while not await request.is_disconnected():
+                await asyncio.sleep(0.25)
+        job = asyncio.create_task(subscription.answer(body.text, history, image, provider))
+        connection = asyncio.create_task(disconnected())
+        try:
+            done, _ = await asyncio.wait([job, connection], return_when=asyncio.FIRST_COMPLETED)
+            if connection in done:
+                raise HTTPException(499, "The phone disconnected; the assistant request was stopped.")
+            out = await job
+            out["ms"] = int((time.monotonic() - started) * 1000)
+            bus.emit("answer", mode="subscription", provider=provider, spoken=out["spoken"], ms=out["ms"])
+            # Speech is rendered on the iPhone; never call an API voice provider.
+            return out
+        except ProviderError as error:
+            raise HTTPException(503, str(error)) from error
+        finally:
+            job.cancel(); connection.cancel()
+            await asyncio.gather(job, connection, return_exceptions=True)
     try:
         if body.audio_b64 and not body.text.strip():
             out = await assistant.ask_spoken(Attachment(body.audio_b64, body.audio_mime), history)
@@ -236,6 +275,9 @@ async def ws_live(ws: WebSocket, token: str = ""):
         return
     await ws.accept()
     try:
+        if subscription.selected() in subscription.NAMES:
+            await ws.send_json({"type": "error", "text": "Use the updated CJ iPhone app for subscription voice. Speech recognition and playback run on the phone."})
+            return
         await live.Bridge(ws).run()
     except WebSocketDisconnect:
         pass

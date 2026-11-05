@@ -49,6 +49,7 @@ final class LiveAudio {
     var onFailure: ((String) -> Void)?
     var route = "iPhone"
     var isPlaying: Bool { queuedFrames > 0 }
+    var bufferedPlaybackSeconds: Double { Double(queuedFrames) / 24_000 }
 
     func start() async throws -> AsyncStream<Data> {
         guard await AVAudioApplication.requestRecordPermission() else {
