@@ -14,7 +14,7 @@ struct SetupView: View {
         Form {
             Section {
                 Label("One Mac. Your own assistant.", systemImage: "desktopcomputer").font(.headline)
-                Text("Open CJ Bridge on your Mac, choose Codex or Claude Code, and pair over the same Wi-Fi.")
+                Text("Open CJ Bridge on your Mac. Choose Local Wi-Fi or Tailscale, then scan its pairing code. For Tailscale, connect both devices to the same tailnet.")
                     .font(.callout).foregroundStyle(.secondary)
                 Text("Subscription mode uses this Mac’s existing ChatGPT or Claude login. Your iPhone transcribes each question and speaks the reply. Choose Gemini on the Mac if you prefer its streaming API voice.")
                     .font(.footnote).foregroundStyle(.secondary)

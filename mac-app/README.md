@@ -20,8 +20,9 @@ place. It is a local development app, not a standalone distribution installer.
    `claude auth login` (choose your Claude account).
 2. Open CJ Bridge and choose the assistant and working folder. Settings are
    saved in `~/.cj/config.json`, preserving existing API keys and pairing tokens.
-3. Keep the Mac awake and on the same Wi-Fi as the iPhone. In CJ's Setup, scan
-   the QR code. Existing pairings continue to work if the Mac address is unchanged.
+3. Keep the Mac awake. In CJ Bridge, choose **Local Wi-Fi** for the same network
+   or **Tailscale** for remote access. In CJ’s Setup, scan the QR code and tap
+   **Connect to Mac**.
 4. Tap **Talk to CJ**, or enable **Listen for CJ**. The iPhone detects the wake
    phrase and transcribes each question using on-device Apple recognition. The
    Mac assistant answers; the iPhone renders an Apple voice through the existing
@@ -32,6 +33,21 @@ working and while CJ speaks, then resumes. Say “bye” to end a conversation, 
 tap End to cancel the current request. With wake listening enabled, ending a
 conversation returns to wake detection. Visual questions such as “look at this”
 request a fresh glasses photo; typed questions can include an attached photo.
+
+## Pair over Tailscale
+
+Connect the Mac and iPhone to the same tailnet. In CJ Bridge choose **Tailscale**.
+If the Mac needs a listener, run the command shown in the bridge and click
+**Refresh addresses**. It suggests a free HTTPS port and forwards it privately
+to CJ on `127.0.0.1:8765`. Tailscale may prompt a tailnet admin to enable HTTPS.
+
+Scan the Tailscale QR code once. Keep Tailscale connected on the iPhone to use
+the same pairing over cellular or Wi-Fi. The phone verifies the HTTPS endpoint
+and the existing CJ pairing token. To switch back, scan the **Local Wi-Fi** code.
+
+The suggested Serve listener persists across Mac restarts. To remove CJ’s
+listener, use `tailscale serve --https=8443 off`, substituting the port shown
+in your pairing address. [Tailscale Serve documentation](https://tailscale.com/docs/reference/tailscale-cli/serve)
 
 ## Execution and billing
 

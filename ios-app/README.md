@@ -28,7 +28,9 @@ Voice defaults to **English**. Choose another language in **Setup → Speech
 language**. Subscription voice needs on-device recognition for the selected
 language and uses the phone's locale for the automatic setting.
 
-The iPhone and Mac must be able to reach each other over Wi-Fi. Use a trusted
+For cellular or remote Wi-Fi, connect both devices to the same Tailscale network,
+choose **Tailscale** in CJ Bridge and scan its HTTPS pairing code in **Setup**.
+See the [Mac bridge guide](../mac-app/README.md#pair-over-tailscale). Use a trusted
 local network for the original brain's HTTP endpoint. The app also supports
 HTTPS/WSS endpoints, preserving ATS protections for internet hosts. Do not expose
 the original HTTP server publicly. In subscription mode the phone sends transcripts

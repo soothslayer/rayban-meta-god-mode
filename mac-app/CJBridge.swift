@@ -11,8 +11,14 @@ final class BridgeModel: ObservableObject {
     @Published var checking = false
     @Published var managed = false
     @Published var accounts = "Checking this Mac’s sign-ins…"
+    @Published var network = UserDefaults.standard.string(forKey: "pairingNetwork") ?? "wifi"
+    @Published var tailnetHint = "Checking Tailscale on this Mac…"
+    @Published var checkingNetwork = false
     @Published var pairingAddress = ""
     @Published var qr: NSImage?
+    private var lanURL: String?
+    private var tailnetURL: String?
+    private var networkCheck: Task<Void, Never>?
     private var process: Process?
     private var monitor: Task<Void, Never>?
     private var accountCheck: Task<Void, Never>?
@@ -72,6 +78,7 @@ final class BridgeModel: ObservableObject {
             if let health = try? await self.fetch("/health"), health["name"] as? String == "CJ" {
                 self.running = true
                 self.message = "An existing CJ brain is running. Its terminal owns the process."
+                self.refreshNetwork()
                 self.refreshAccounts()
                 self.monitor = nil
                 return
@@ -96,7 +103,7 @@ final class BridgeModel: ObservableObject {
                 // CLI diagnostics can contain account or conversation data.
                 child.standardOutput = FileHandle.nullDevice; child.standardError = FileHandle.nullDevice
                 child.terminationHandler = { [weak self] _ in
-                    Task { @MainActor in self?.running = false; self?.managed = false; self?.process = nil; self?.message = "CJ Bridge stopped." }
+                    Task { @MainActor in self?.running = false; self?.managed = false; self?.process = nil; self?.clearNetwork(); self?.message = "CJ Bridge stopped." }
                 }
                 self.process = child
                 try child.run()
@@ -104,7 +111,8 @@ final class BridgeModel: ObservableObject {
                 for _ in 0..<60 {
                     try Task.checkCancellation()
                     if let health = try? await self.fetch("/health"), health["name"] as? String == "CJ" {
-                        self.running = true; self.message = "Ready. Keep your Mac awake and on the same Wi-Fi as your iPhone."
+                        self.running = true; self.message = "Ready. Keep this Mac awake while using CJ."
+                        self.refreshNetwork()
                         self.refreshAccounts()
                         self.monitor = nil
                         return
@@ -123,6 +131,7 @@ final class BridgeModel: ObservableObject {
     func stop() {
         monitor?.cancel(); monitor = nil
         accountCheck?.cancel(); accountCheck = nil
+        clearNetwork()
         if process?.isRunning == true { process?.terminate(); message = "Stopping CJ Bridge…" }
         else { process = nil; running = false; managed = false; message = "CJ Bridge stopped." }
     }
@@ -153,23 +162,70 @@ final class BridgeModel: ObservableObject {
                     if let error = account["error"] as? String { return "\(title): \(error)" }
                     return "\(title): " + (account["subscription"] as? Bool == true ? "signed in with subscription" : "sign in on this Mac")
                 }.joined(separator: "\n")
-                if let address = status["url"] as? String {
-                    self.pairingAddress = address
-                    let payload: [String: Any] = ["v": 1, "url": address, "token": self.token]
-                    let filter = CIFilter.qrCodeGenerator()
-                    filter.message = try JSONSerialization.data(withJSONObject: payload)
-                    if let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 7, y: 7)),
-                       let image = CIContext().createCGImage(output, from: output.extent) {
-                        self.qr = NSImage(cgImage: image, size: NSSize(width: 240, height: 240))
-                    }
+                if self.running, self.lanURL == nil, let address = status["url"] as? String {
+                    self.lanURL = address
+                    self.updateQR()
                 }
             } catch { self.accounts = error.localizedDescription }
         }
     }
 
+    private func clearNetwork() {
+        networkCheck?.cancel()
+        networkCheck = nil
+        checkingNetwork = false
+        lanURL = nil
+        tailnetURL = nil
+        updateQR()
+    }
+
+    func refreshNetwork() {
+        clearNetwork()
+        checkingNetwork = true
+        tailnetHint = "Checking Tailscale on this Mac…"
+        networkCheck = Task {
+            defer { if !Task.isCancelled { checkingNetwork = false } }
+            do {
+                let status = try await fetch("/api/bridge/pairing")
+                guard !Task.isCancelled else { return }
+                lanURL = status["lan"] as? String
+                tailnetURL = status["tailscale"] as? String
+                tailnetHint = status["hint"] as? String ?? ""
+                if UserDefaults.standard.string(forKey: "pairingNetwork") == nil {
+                    network = tailnetURL == nil ? "wifi" : "tailscale"
+                }
+                updateQR()
+            } catch {
+                if !Task.isCancelled { tailnetHint = error.localizedDescription }
+            }
+        }
+    }
+
+    func chooseNetwork(_ choice: String) {
+        network = choice
+        UserDefaults.standard.set(choice, forKey: "pairingNetwork")
+        updateQR()
+    }
+
+    private func updateQR() {
+        pairingAddress = (network == "tailscale" ? tailnetURL : lanURL) ?? ""
+        qr = nil
+        guard let payload = pairingPayload else { return }
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = payload
+        if let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 7, y: 7)),
+           let image = CIContext().createCGImage(output, from: output.extent) {
+            qr = NSImage(cgImage: image, size: NSSize(width: 240, height: 240))
+        }
+    }
+
+    private var pairingPayload: Data? {
+        guard !pairingAddress.isEmpty, !token.isEmpty else { return nil }
+        return try? JSONSerialization.data(withJSONObject: ["v": 1, "url": pairingAddress, "token": token])
+    }
+
     func copyPairing() {
-        guard let data = try? JSONSerialization.data(withJSONObject: ["v": 1, "url": pairingAddress, "token": token]),
-              let text = String(data: data, encoding: .utf8) else { return }
+        guard let data = pairingPayload, let text = String(data: data, encoding: .utf8) else { return }
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
     }
 }
@@ -206,10 +262,19 @@ struct BridgeView: View {
                 if let qr = model.qr { Image(nsImage: qr).interpolation(.none).resizable().frame(width: 210, height: 210).padding(12).background(.white).cornerRadius(12) }
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Pair your iPhone").font(.title2.bold())
-                    Text("In CJ, open Setup → Scan pairing QR code. Existing pairings keep working.")
-                    Text(model.pairingAddress).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
-                    Button("Copy pairing payload") { model.copyPairing() }.disabled(model.pairingAddress.isEmpty)
-                    Text("Subscription voice uses Apple speech on your iPhone. Questions and requested photos go to the selected assistant on this Mac.").font(.callout).foregroundStyle(.secondary)
+                    Picker("Connection", selection: Binding(get: { model.network }, set: model.chooseNetwork)) {
+                        Text("Local Wi-Fi").tag("wifi")
+                        Text("Tailscale").tag("tailscale")
+                    }.pickerStyle(.segmented)
+                    Text(model.network == "tailscale" ? model.tailnetHint : "On the same Wi-Fi, open CJ → Setup and scan this code.")
+                        .font(.callout).textSelection(.enabled)
+                    if !model.pairingAddress.isEmpty {
+                        Text(model.pairingAddress).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                    }
+                    HStack {
+                        Button("Copy pairing payload") { model.copyPairing() }.disabled(model.pairingAddress.isEmpty)
+                        Button("Refresh addresses") { model.refreshNetwork() }.disabled(!model.running || model.checkingNetwork)
+                    }
                 }
             }
             Spacer(minLength: 0)
