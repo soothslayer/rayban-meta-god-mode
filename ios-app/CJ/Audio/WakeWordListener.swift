@@ -4,7 +4,9 @@ import UIKit
 
 @MainActor
 final class WakeWordListener {
-    var onWake: ((VoiceCapture) -> Void)?
+    var onWake: ((VoiceCapture, Bool) -> Void)?
+    private var listensForCJ = true
+    private var listensForStart = false
     var onState: ((String) -> Void)?
     var onFailure: ((String) -> Void)?
     private var capture: VoiceCapture?
@@ -20,8 +22,10 @@ final class WakeWordListener {
     private var pendingWakeSample: Int?
     private var failures = 0
 
-    func start(using existing: VoiceCapture? = nil) {
+    func start(using existing: VoiceCapture? = nil, listenForCJ: Bool, listenForStart: Bool) {
         stop()
+        listensForCJ = listenForCJ
+        listensForStart = listenForStart
         let generation = UUID()
         self.generation = generation
         capture = existing
@@ -86,7 +90,7 @@ final class WakeWordListener {
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = true
         request.taskHint = .dictation
-        request.contextualStrings = ["CJ", "Hey CJ", "C J"]
+        request.contextualStrings = (listensForCJ ? ["CJ", "Hey CJ", "C J"] : []) + (listensForStart ? ["Start"] : [])
         self.request = request
         let recognitionGeneration = UUID()
         self.recognitionGeneration = recognitionGeneration
@@ -114,7 +118,8 @@ final class WakeWordListener {
                 if error != nil, self.pendingWakeSample == nil { self.scheduleRestart(afterError: true) }
             }
         }
-        onState?("Listening for “CJ” · \(capture.audio.route)")
+        let phrase = listensForCJ ? (listensForStart ? "“CJ” or “Start”" : "“CJ”") : "“Start”"
+        onState?("Listening for \(phrase) · \(capture.audio.route)")
         rotation = Task { [weak self] in
             // Speech tasks have bounded lifetimes. Renew recognition without
             // reopening the microphone or connecting to the Mac.
@@ -126,7 +131,18 @@ final class WakeWordListener {
 
     private func inspect(_ result: SFSpeechRecognitionResult, firstSample: Int) {
         let segments = result.bestTranscription.segments
-        guard let range = WakeWordMatcher.match(segments.map(\.substring)), let capture else {
+        let wakeRange = listensForCJ ? WakeWordMatcher.match(segments.map(\.substring)) : nil
+        // Apple can keep multiple utterances in a single recognition result.
+        // Start must be the entire last utterance, separated from previous speech.
+        let lastSegment = segments.last
+        let previous = segments.dropLast().last
+        let previousEnd = previous.map { $0.timestamp + $0.duration }
+        let standaloneStart = lastSegment.map {
+            VoiceCommandPolicy.isStandbyStart($0.substring, at: $0.timestamp, previousEnd: previousEnd)
+        } ?? false
+        let startRange = listensForStart && UIApplication.shared.applicationState == .active && standaloneStart
+            ? (segments.count - 1)..<segments.count : nil
+        guard let range = wakeRange ?? startRange, let capture else {
             confirmation?.cancel(); confirmation = nil; pendingWakeSample = nil
             return
         }
@@ -143,11 +159,15 @@ final class WakeWordListener {
         let generation = generation
         confirmation = Task { [weak self] in
             // Allow partial corrections such as “see Jay” -> “see Jake”.
-            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-            guard let self, self.generation == generation, self.pendingWakeSample == start,
-                  let capture = self.takeCapture(from: start) else { return }
-            self.onState?("Heard “CJ” · Connecting to your Mac…")
-            if let onWake = self.onWake { onWake(capture) }
+            do { try await Task.sleep(for: .milliseconds(wakeRange == nil ? 700 : 250)) } catch { return }
+            guard let self, self.generation == generation, self.pendingWakeSample == start else { return }
+            if wakeRange == nil && UIApplication.shared.applicationState != .active {
+                self.beginRecognition()
+                return
+            }
+            guard let capture = self.takeCapture(from: wakeRange == nil ? nil : start) else { return }
+            self.onState?("Connecting to your Mac…")
+            if let onWake = self.onWake { onWake(capture, wakeRange == nil) }
             else { capture.stop() }
         }
     }

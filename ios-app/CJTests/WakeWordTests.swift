@@ -55,3 +55,50 @@ final class WakeWordTests: XCTestCase {
         XCTAssertTrue(buffer.data.isEmpty)
     }
 }
+
+final class VoiceControlsTests: XCTestCase {
+    func testOnlyWholeCommandsMatch() {
+        for command in VoiceCommand.allCases {
+            XCTAssertEqual(VoiceCommandPolicy.command(in: "  " + command.rawValue.uppercased() + "!"), command)
+        }
+        for question in ["Where’s the bus stop?", "Start a timer", "Stop 2", "Unmute me", "cancelled", ""] {
+            XCTAssertNil(VoiceCommandPolicy.command(in: question))
+        }
+    }
+
+    func testStandbyStartCanFollowAnEarlierUtterance() {
+        XCTAssertTrue(VoiceCommandPolicy.isStandbyStart("Start.", at: 1.1, previousEnd: nil))
+        XCTAssertTrue(VoiceCommandPolicy.isStandbyStart("start", at: 3, previousEnd: 2))
+        XCTAssertFalse(VoiceCommandPolicy.isStandbyStart("start", at: 3, previousEnd: 2.8))
+        XCTAssertFalse(VoiceCommandPolicy.isStandbyStart("restart", at: 3, previousEnd: nil))
+    }
+
+    func testAllowedCommandsWhileAskingThinkingSpeakingAndMuted() {
+        for phase in [VoicePhase.listening, .thinking, .speaking] {
+            XCTAssertEqual(VoiceCommand.allCases.filter { phase.accepts($0, muted: false) }, [.stop, .cancel, .mute])
+            XCTAssertEqual(VoiceCommand.allCases.filter { phase.accepts($0, muted: true) }, [.unmute])
+        }
+        XCTAssertEqual(VoiceCommand.allCases.filter { VoicePhase.standby.accepts($0, muted: false) }, [.start])
+    }
+
+    func testCuesUseTheRayBridgePitchOrderAndHeartbeatTiming() {
+        func crossings(_ wav: Data, start: Int, count: Int) -> Int {
+            func sample(_ frame: Int) -> Int16 {
+                let offset = 44 + 2 * frame
+                return Int16(bitPattern: UInt16(wav[offset]) | UInt16(wav[offset + 1]) << 8)
+            }
+            return (start..<(start + count)).filter { sample($0) <= 0 && sample($0 + 1) > 0 }.count
+        }
+        for (cue, rising) in [(RayBridgeSounds.listeningCue, true), (RayBridgeSounds.stoppedListeningCue, false)] {
+            XCTAssertEqual(String(decoding: cue.prefix(4), as: UTF8.self), "RIFF")
+            XCTAssertEqual(cue.count, 44 + 7938 * 2)
+            XCTAssertEqual(crossings(cue, start: 500, count: 2205), rising ? 33 : 44)
+            XCTAssertEqual(crossings(cue, start: 4500, count: 2205), rising ? 44 : 33)
+        }
+        let beat = RayBridgeSounds.thinkingHeartbeat
+        XCTAssertEqual(beat.count, 44 + 110250 * 2)
+        XCTAssertGreaterThan(crossings(beat, start: 0, count: 3200), 20)
+        XCTAssertGreaterThan(crossings(beat, start: 5800, count: 3800), 20)
+        XCTAssertTrue(beat.dropFirst(44 + 9800 * 2).allSatisfy { $0 == 0 })
+    }
+}

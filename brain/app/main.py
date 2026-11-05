@@ -83,7 +83,7 @@ class AskIn(BaseModel):
 @app.get("/health")
 async def health():
     selected = subscription.selected()
-    return {"name": "CJ", "ok": True, "providers": router.status(), "assistant": selected,
+    return {"name": "CJ", "ok": True, "manual_voice_turns": True, "providers": router.status(), "assistant": selected,
             "voice_mode": "local" if selected in LOCAL_VOICE else "gemini"}
 
 

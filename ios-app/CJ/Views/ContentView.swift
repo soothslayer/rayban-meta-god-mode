@@ -166,7 +166,7 @@ struct ContentView: View {
                     .font(.subheadline).tint(mint)
                     .disabled(model.busy || (live.active && !model.wakeWordEnabled))
                     .accessibilityIdentifier("conversation-wake-toggle")
-                if model.wakeWordEnabled {
+                if model.showsWakeStatus {
                     Text(model.wakeWordStatus).font(.caption).foregroundStyle(.secondary)
                         .accessibilityIdentifier("wake-word-status")
                 }

@@ -123,6 +123,10 @@ class Bridge:
         self.closed = asyncio.Event()
 
     # ---- setup ----------------------------------------------------------------------------------------------
+    @property
+    def manual_voice_turns(self) -> bool:
+        return self.mode == "assistant" and self.start.get("manual_voice_turns") is True
+
     def _setup(self) -> dict:
         if self.mode == "interpreter":
             system = INTERPRETER.format(user=self.start.get("user_language") or "English",
@@ -153,6 +157,8 @@ class Bridge:
                      "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH", "silenceDurationMs": 500}},
                  "sessionResumption": {"handle": self.handle} if self.handle else {},
                  "contextWindowCompression": {"slidingWindow": {}}}
+        if self.manual_voice_turns:
+            setup["realtimeInputConfig"] = {"automaticActivityDetection": {"disabled": True}}
         return {"setup": setup}
 
     async def _connect(self) -> None:
@@ -190,6 +196,8 @@ class Bridge:
                     ctl = json.loads(msg["text"])
                     if ctl.get("type") == "photo" and self.photo and not self.photo.done():
                         self.photo.set_result(ctl.get("image_b64") or "")
+                    elif self.manual_voice_turns and ctl.get("type") in ("activityStart", "activityEnd"):
+                        await self._to_gemini({"realtimeInput": {ctl["type"]: {}}})
                     elif ctl.get("type") == "end":
                         break
         except WebSocketDisconnect:
@@ -263,7 +271,7 @@ class Bridge:
         if self.looked and said:
             memory.add(f"Saw through the glasses ({heard}): {said}", kind="seen")
         self.looked = False
-        await self._event("turn_done", heard=heard, said=said)
+        await self._event("turn_done", heard=heard, said=said, ending=self.ending)
         if self.ending:
             await self._event("end")
             self.closed.set()

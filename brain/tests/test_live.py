@@ -177,3 +177,29 @@ def test_interpreter_still_recognizes_both_languages(bridge):
     bridge.mode = "interpreter"
     bridge.start = {"transcription_language": "en-US", "user_language": "English", "language": "Spanish"}
     assert bridge._setup()["setup"]["inputAudioTranscription"] == {}
+
+
+@pytest.mark.parametrize("mode, flag, enabled", [
+    ("assistant", True, True), ("assistant", False, False), ("assistant", None, False),
+    ("assistant", "true", False), ("interpreter", True, False),
+])
+def test_explicit_audio_turns_require_opt_in_and_forward_only_question_audio(bridge, mode, flag, enabled):
+    bridge.mode = mode
+    bridge.start = {"manual_voice_turns": flag} if flag is not None else {}
+    detection = bridge._setup()["setup"]["realtimeInputConfig"]["automaticActivityDetection"]
+    assert detection.get("disabled", False) is enabled
+    messages = iter([
+        {"text": '{"type":"activityStart"}'},
+        {"bytes": b"question"},
+        {"text": '{"type":"activityEnd"}'},
+        {"text": '{"type":"end"}'},
+    ])
+
+    async def receive():
+        return next(messages)
+
+    bridge.phone.receive = receive
+    run(bridge.from_phone())
+    audio = {"audio": {"mimeType": "audio/pcm;rate=16000", "data": "cXVlc3Rpb24="}}
+    expected = [{"activityStart": {}}, audio, {"activityEnd": {}}] if enabled else [audio]
+    assert [msg["realtimeInput"] for msg in bridge.gemini.sent] == expected

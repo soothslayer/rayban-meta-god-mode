@@ -66,14 +66,22 @@ struct SetupView: View {
                 Toggle("Listen for CJ", isOn: Binding(get: { model.wakeWordEnabled }, set: model.setWakeWordEnabled))
                     .disabled(model.pairing == nil || model.busy || (live.active && !model.wakeWordEnabled))
                     .accessibilityIdentifier("wake-word-toggle")
-                if model.wakeWordEnabled { Text(model.wakeWordStatus).font(.footnote).foregroundStyle(.tint) }
-                Text("Enable once after opening CJ, then say “CJ” or “Hey CJ” and your question. After “bye” or End conversation, CJ listens for the wake word again. Turn this switch off to release the microphone.")
+                if model.showsWakeStatus { Text(model.wakeWordStatus).font(.footnote).foregroundStyle(.tint) }
+                Text("Enable once after opening CJ, then say “CJ” or “Hey CJ” and your question. After “bye” or End conversation, CJ listens for the wake word again. To release the idle microphone, turn off both Listen for CJ and Listen for Start while stopped.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Text("Wake recognition runs on this iPhone. Codex and Claude Code receive transcribed questions and requested photos. Muse receives text; Gemini mode streams conversation audio. Listening keeps the microphone active and may continue with the screen locked, but cannot restart after you force-quit CJ or iOS ends the audio session.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Text("Mac tools work through the existing brain. Android phone automation, automatic visual memory, continuous dictation, location nudges, and split-output translation are not included.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+            Section("Sound cues and voice commands") {
+                Toggle("Listen for voice commands", isOn: $model.voiceCommandsEnabled)
+                Toggle("Listen for Start while stopped", isOn: $model.startStandbyEnabled)
+                    .disabled(!model.voiceCommandsEnabled)
+                Toggle("Play heartbeat while thinking", isOn: $model.thinkingHeartbeatEnabled)
+                Text("Say Start while CJ is open. During a conversation, say Stop to end it, Cancel to ask again, or Mute to ignore input until Unmute. Say each command on its own.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }.disabled(live.active)
             if model.pairing != nil {
                 Section {
                     Button("Forget this Mac", role: .destructive) { model.forget(); address = ""; token = ""; result = nil }
