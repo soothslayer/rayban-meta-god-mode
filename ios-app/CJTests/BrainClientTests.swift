@@ -43,6 +43,7 @@ final class BrainClientTests: XCTestCase {
     }
 
     func testAskSendsPhotoAndOnlyRecentHistory() async throws {
+        let conversation = UUID()
         StubProtocol.respond = { request in
             XCTAssertEqual(request.url!.path, "/api/ask")
             XCTAssertEqual(request.httpMethod, "POST")
@@ -54,11 +55,12 @@ final class BrainClientTests: XCTestCase {
             }
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
             XCTAssertEqual((json["history"] as? [[String: String]])?.count, 8)
+            XCTAssertEqual(json["conversation_id"] as? String, conversation.uuidString)
             XCTAssertEqual(json["image_b64"] as? String, "AQID")
             XCTAssertEqual(json["voice"] as? Bool, true)
             return (200, #"{"spoken":"A sample reply","language":"en"}"#)
         }
-        let answer = try await client().ask("What is this?", history: (0..<12).map { Turn(role: "user", text: "Turn \($0)") }, image: Data([1,2,3]))
+        let answer = try await client().ask("What is this?", history: (0..<12).map { Turn(role: "user", text: "Turn \($0)") }, image: Data([1,2,3]), conversationID: conversation)
         XCTAssertEqual(answer.spoken, "A sample reply")
     }
 

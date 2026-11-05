@@ -13,24 +13,26 @@ from .base import Attachment, Completion, Provider, ProviderError
 from .claude import Claude
 from .gemini import Gemini
 from .groq import Groq
+from .muse import Muse
 from .mock import Mock
 from .openai import OpenAI
 from .subscription import Subscription, NAMES
 
+LOCAL_VOICE = (*NAMES, "muse")
 AUDIO = "gemini"
 NO_IMAGES = {"groq"}
 
 
 class Router:
     def __init__(self) -> None:
-        self.providers: dict[str, Provider] = {p.name: p for p in (Gemini(), Claude(), OpenAI(), Groq(),
+        self.providers: dict[str, Provider] = {p.name: p for p in (Gemini(), Claude(), OpenAI(), Groq(), Muse(),
                                                                  Subscription("codex"), Subscription("claude-code"))}
         self.mock = Mock()
 
     def preferred(self) -> str:
         """The main brain you picked, if its key is set; otherwise Gemini."""
         name = os.environ.get("CJ_PROVIDER") or config.load().get("provider") or AUDIO
-        if name in NAMES:
+        if name in LOCAL_VOICE:
             return name  # Never silently switch subscription requests to a paid API.
         p = self.providers.get(name)
         return name if p and p.available() else AUDIO
@@ -38,7 +40,7 @@ class Router:
     def chain(self, attachment: Attachment | None = None) -> list[Provider]:
         if os.environ.get("CJ_FORCE_MOCK") == "1":
             return [self.mock]
-        if self.preferred() in NAMES:
+        if self.preferred() in LOCAL_VOICE:
             return [self.providers[self.preferred()]]
         if attachment and attachment.mime.startswith("audio/"):
             names = [AUDIO]

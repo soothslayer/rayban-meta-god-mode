@@ -53,7 +53,7 @@ struct BrainClient {
         return health
     }
 
-    func ask(_ text: String, history: [Turn], image: Data?, assistant: String? = nil) async throws -> Answer {
+    func ask(_ text: String, history: [Turn], image: Data?, assistant: String? = nil, conversationID: UUID? = nil) async throws -> Answer {
         struct Request: Encodable {
             let text: String
             let history: [Turn]
@@ -61,8 +61,9 @@ struct BrainClient {
             let mime = "image/jpeg"
             let voice = true
             let assistant: String?
+            let conversation_id: UUID?
         }
-        let body = try JSONEncoder().encode(Request(text: text, history: Array(history.suffix(8)), image_b64: image?.base64EncodedString(), assistant: assistant))
+        let body = try JSONEncoder().encode(Request(text: text, history: Array(history.suffix(8)), image_b64: image?.base64EncodedString(), assistant: assistant, conversation_id: conversationID))
         return try JSONDecoder().decode(Answer.self, from: await call("/api/ask", body: body))
     }
 }

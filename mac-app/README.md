@@ -1,8 +1,8 @@
 # CJ Bridge for Mac
 
 CJ Bridge runs the existing brain server and connects the iPhone to **Codex with
-ChatGPT sign-in** or **Claude Code with Claude sign-in**. The default for a new
-bridge is Codex. Both use their existing Mac configuration, tools, plugins and
+ChatGPT sign-in**, **Claude Code with Claude sign-in**, or **Muse gadget chat**. The default for a new
+bridge is Codex. Codex and Claude Code use their existing Mac configuration, tools, plugins and
 subscription quotas. Credentials remain managed by the installed CLI.
 
 Build and open the development app:
@@ -33,6 +33,29 @@ working and while CJ speaks, then resumes. Say “bye” to end a conversation, 
 tap End to cancel the current request. With wake listening enabled, ending a
 conversation returns to wake detection. Visual questions such as “look at this”
 request a fresh glasses photo; typed questions can include an attached photo.
+
+## Pair Muse on the Mac
+
+1. Build CJ Bridge with `muse-voice-ios` checked out alongside this repository.
+   For a different location, set `CJ_MUSE_SOURCE` to the checkout path before
+   running `bash scripts/build-mac.sh`. The script compiles the existing Swift
+   Bluetooth and encrypted chat client into the app. Other assistants can build
+   on their own.
+2. In CJ Bridge select **Muse · gadget chat → Pair Muse**. Paste your gadget
+   SDK token into the secure field and choose **Start pairing**. Allow Bluetooth
+   access. Get the token from [Muse Gadgets](https://gadgets.muse.ai).
+3. In the Muse app on your iPhone, open **Settings → Devices**, enable
+   **Developer mode**, and choose **Add device**. Select the exact **MuseGadget**
+   name shown by CJ Bridge. Choose **Use existing connection** if prompted.
+4. Keep CJ Bridge running. On the updated CJ iPhone app, tap **Talk to CJ** or
+   type a message using your usual Wi-Fi or Tailscale pairing. **Clear** starts
+   a new CJ chat. Muse keeps the conversation across follow-up turns.
+
+CJ creates a dedicated gadget identity. The SDK token and rotating device
+credentials are saved in the Mac Keychain. The phone sends transcripts to the
+bridge and speaks Muse’s response. This gadget transport handles text;
+use Codex or Claude Code for glasses photos and local Mac tool execution.
+The Mac helper code was tested with `muse-voice-ios` revision `b25130a`.
 
 ## Pair over Tailscale
 

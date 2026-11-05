@@ -1,7 +1,7 @@
 import AVFoundation
 import Speech
 
-/// Turn-based, subscription-only voice: Apple recognition -> Mac CLI -> Apple voice.
+/// On-device recognition and playback for assistants served by the Mac bridge.
 /// Reuses the live audio engine so Bluetooth and wake-word handoff stay connected.
 @MainActor
 final class SubscriptionConversation {
@@ -14,7 +14,15 @@ final class SubscriptionConversation {
     var photo: (() async throws -> Data)?
     private let capture: VoiceCapture
     private let client: BrainClient
+    private let conversationID: UUID
     private let provider: String
+    private var assistantName: String {
+        switch provider {
+        case "codex": return "Codex"
+        case "muse": return "Muse"
+        default: return "Claude Code"
+        }
+    }
     private let language: String
     private var history: [Turn]
     private var recognizer: SFSpeechRecognizer?
@@ -30,7 +38,8 @@ final class SubscriptionConversation {
     private var failures = 0
     private var stopped = false
 
-    init(capture: VoiceCapture, pairing: Pairing, provider: String, language: String, history: [Turn]) {
+    init(capture: VoiceCapture, pairing: Pairing, provider: String, language: String, history: [Turn], conversationID: UUID) {
+        self.conversationID = conversationID
         self.capture = capture
         self.client = BrainClient(pairing: pairing)
         self.provider = provider
@@ -83,7 +92,7 @@ final class SubscriptionConversation {
         guard !stopped, let recognizer else { return }
         latest = ""
         onHeard?(""); onSaid?("")
-        onStatus?("Listening · \(provider == "codex" ? "Codex" : "Claude Code") · say “bye” to finish")
+        onStatus?("Listening · \(assistantName) · say “bye” to finish")
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = true
@@ -140,16 +149,16 @@ final class SubscriptionConversation {
             onEnd?(); return
         }
         onHeard?(question)
-        onStatus?("\(provider == "codex" ? "Codex" : "Claude Code") is working on your Mac…")
+        onStatus?("\(assistantName) is answering…")
         answer = Task { [weak self] in
             guard let self else { return }
             do {
                 var image: Data?
-                if question.range(of: "(?i)\\b(look|see|camera|photo|picture|read this|what is this|what's this)\\b", options: .regularExpression) != nil {
+                if self.provider != "muse", question.range(of: "(?i)\\b(look|see|camera|photo|picture|read this|what is this|what's this)\\b", options: .regularExpression) != nil {
                     image = try? await self.photo?()
                 }
                 try Task.checkCancellation()
-                let reply = try await self.client.ask(question, history: self.history, image: image, assistant: self.provider)
+                let reply = try await self.client.ask(question, history: self.history, image: image, assistant: self.provider, conversationID: self.conversationID)
                 try Task.checkCancellation()
                 self.onSaid?(reply.spoken)
                 self.onTurn?(question, reply.spoken)
