@@ -19,6 +19,14 @@ final class PairingTests: XCTestCase {
         XCTAssertEqual(pairing.request(path: "/ws/live", websocket: true).url?.absoluteString, "wss://[::1]:8765/ws/live")
     }
 
+    func testTailscaleQRPreservesTLSAndPortForBothTransports() throws {
+        let pairing = try Pairing.parse(qr: #"{"v":1,"url":"https://cj.example.ts.net:8443","token":"secret"}"#)
+        XCTAssertEqual(pairing.request(path: "/api/ask").url?.absoluteString, "https://cj.example.ts.net:8443/api/ask")
+        let live = pairing.request(path: "/ws/live", websocket: true)
+        XCTAssertEqual(live.url?.absoluteString, "wss://cj.example.ts.net:8443/ws/live")
+        XCTAssertEqual(live.value(forHTTPHeaderField: "Authorization"), "Bearer secret")
+    }
+
     func testRejectsMalformedOrUnexpectedPairingDestinations() {
         for address in ["", "192.168.1.2", "file:///tmp/test", "http://", "http://user:password@host", "https://example.com/evil", "https://example.com?token=x", "https://example.com#fragment", "http://host:0", "http://host:65536"] {
             XCTAssertThrowsError(try Pairing(address: address, token: "test"), address)

@@ -17,6 +17,7 @@ from . import agent, config, discovery, live, memory, notes, nudges, phone_agent
 from .events import bus
 from .models.base import Attachment
 from .models import subscription
+from . import tailnet
 from .models.base import ProviderError
 from .models.router import router
 from .modes import assistant
@@ -81,6 +82,13 @@ async def health():
     selected = subscription.selected()
     return {"name": "CJ", "ok": True, "providers": router.status(), "assistant": selected,
             "voice_mode": "local" if selected in subscription.NAMES else "gemini"}
+
+
+@app.get("/api/bridge/pairing", dependencies=[Depends(require_auth)])
+def bridge_pairing():
+    from .pair import lan_ip, PORT
+    url, hint = tailnet.discover()
+    return {"lan": f"http://{lan_ip()}:{PORT}", "tailscale": url, "hint": hint}
 
 
 @app.get("/api/bridge/status", dependencies=[Depends(require_auth)])
