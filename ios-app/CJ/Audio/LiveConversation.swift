@@ -24,7 +24,7 @@ final class LiveConversation: ObservableObject {
     private var timeout: Task<Void, Never>?
     private var generation = UUID()
 
-    func start(pairing: Pairing, history: [Turn], transcriptionLanguage: String, preparedCapture: VoiceCapture? = nil) {
+    func start(pairing: Pairing, history: [Turn], conversationID: UUID, transcriptionLanguage: String, preparedCapture: VoiceCapture? = nil) {
         guard !active else { preparedCapture?.stop(); return }
         capture = preparedCapture
         capture?.onFailure = { [weak self] in self?.fail($0) }
@@ -38,12 +38,12 @@ final class LiveConversation: ObservableObject {
             do {
                 let health = try await BrainClient(pairing: pairing).health()
                 try Task.checkCancellation()
-                if health.voice_mode == "local", let provider = health.assistant, ["codex", "claude-code"].contains(provider) {
+                if health.voice_mode == "local", let provider = health.assistant, ["codex", "claude-code", "muse"].contains(provider) {
                     let capture = self.capture ?? VoiceCapture()
                     self.capture = capture
                     capture.onFailure = { [weak self] in self?.fail($0) }
                     let subscription = SubscriptionConversation(capture: capture, pairing: pairing, provider: provider,
-                        language: transcriptionLanguage, history: history)
+                        language: transcriptionLanguage, history: history, conversationID: conversationID)
                     self.subscription = subscription
                     subscription.photo = self.photo
                     subscription.onHeard = { [weak self] in self?.heard = $0 }

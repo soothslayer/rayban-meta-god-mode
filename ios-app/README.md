@@ -13,7 +13,7 @@ pinned to **1.0.1**, including its exact revision in `Package.resolved`.
    **CJ → Signing & Capabilities** and change the bundle identifier if needed.
    Enable Developer Mode on the iPhone, choose it as the destination, and Run.
 4. Open [CJ Bridge on the Mac](../mac-app/README.md). Choose **Codex** to use
-   your ChatGPT sign-in or **Claude Code** to use your Claude sign-in. For
+   your ChatGPT sign-in, **Claude Code** for your Claude sign-in, or **Muse** for a gadget paired in CJ Bridge. For
    Gemini Live, choose **Gemini · API** and configure a Gemini key on the Mac.
 5. In **Setup**, scan the bridge's QR code, review the address, then tap
    **Connect to Mac**. Manual address/token entry and pasted JSON also work.

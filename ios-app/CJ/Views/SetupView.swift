@@ -16,7 +16,7 @@ struct SetupView: View {
                 Label("One Mac. Your own assistant.", systemImage: "desktopcomputer").font(.headline)
                 Text("Open CJ Bridge on your Mac. Choose Local Wi-Fi or Tailscale, then scan its pairing code. For Tailscale, connect both devices to the same tailnet.")
                     .font(.callout).foregroundStyle(.secondary)
-                Text("Subscription mode uses this Mac’s existing ChatGPT or Claude login. Your iPhone transcribes each question and speaks the reply. Choose Gemini on the Mac if you prefer its streaming API voice.")
+                Text("For Codex, Claude Code and Muse, your iPhone transcribes each question and speaks the reply. Pair Muse in CJ Bridge on the Mac. Choose Gemini on the Mac if you prefer its streaming API voice.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section {
@@ -69,7 +69,7 @@ struct SetupView: View {
                 if model.wakeWordEnabled { Text(model.wakeWordStatus).font(.footnote).foregroundStyle(.tint) }
                 Text("Enable once after opening CJ, then say “CJ” or “Hey CJ” and your question. After “bye” or End conversation, CJ listens for the wake word again. Turn this switch off to release the microphone.")
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("Wake recognition runs on this iPhone. Subscription mode sends transcribed questions and requested photos to your Mac; Gemini mode streams conversation audio. Listening keeps the microphone active and may continue with the screen locked, but cannot restart after you force-quit CJ or iOS ends the audio session.")
+                Text("Wake recognition runs on this iPhone. Codex and Claude Code receive transcribed questions and requested photos. Muse receives text; Gemini mode streams conversation audio. Listening keeps the microphone active and may continue with the screen locked, but cannot restart after you force-quit CJ or iOS ends the audio session.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Text("Mac tools work through the existing brain. Android phone automation, automatic visual memory, continuous dictation, location nudges, and split-output translation are not included.")
                     .font(.footnote).foregroundStyle(.secondary)

@@ -4,7 +4,18 @@ import CoreImage.CIFilterBuiltins
 
 @MainActor
 final class BridgeModel: ObservableObject {
+    #if CJ_MUSE
+    let muse = MuseRelay()
+    #endif
     @Published var assistant = "codex"
+    var assistantName: String {
+        switch assistant {
+        case "codex": "Codex"
+        case "claude-code": "Claude Code"
+        case "muse": "Muse"
+        default: "Gemini API"
+        }
+    }
     @Published var workspace = FileManager.default.homeDirectoryForCurrentUser.path
     @Published var message = "Starting CJ Bridge…"
     @Published var running = false
@@ -27,7 +38,7 @@ final class BridgeModel: ObservableObject {
 
     init() {
         if let config = try? readConfig() {
-            if let saved = config["provider"] as? String, ["codex", "claude-code", "gemini"].contains(saved) { assistant = saved }
+            if let saved = config["provider"] as? String, ["codex", "claude-code", "gemini", "muse"].contains(saved) { assistant = saved }
             workspace = config["workspace"] as? String ?? workspace
             token = config["token"] as? String ?? ""
         }
@@ -58,7 +69,7 @@ final class BridgeModel: ObservableObject {
             try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys]).write(to: configURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
             workspace = path
-            message = "Saved. New conversations use \(assistant == "codex" ? "Codex" : assistant == "claude-code" ? "Claude Code" : "Gemini API")."
+            message = "Saved. New conversations use \(assistantName)."
             return true
         } catch { message = error.localizedDescription; return false }
     }
@@ -99,6 +110,13 @@ final class BridgeModel: ObservableObject {
                 environment.removeValue(forKey: "CJ_FORCE_MOCK")
                 environment["CJ_HOME"] = self.configURL.deletingLastPathComponent().path
                 environment["PATH"] = "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin:/opt/homebrew/bin:/usr/local/bin:" + (environment["PATH"] ?? "/usr/bin:/bin")
+                environment.removeValue(forKey: "CJ_MUSE_SOCKET")
+                #if CJ_MUSE
+                do {
+                    try self.muse.start()
+                    environment["CJ_MUSE_SOCKET"] = self.muse.socketPath
+                } catch { self.muse.notice = "Could not start the local Muse connection. Restart CJ Bridge." }
+                #endif
                 child.environment = environment
                 // CLI diagnostics can contain account or conversation data.
                 child.standardOutput = FileHandle.nullDevice; child.standardError = FileHandle.nullDevice
@@ -129,6 +147,9 @@ final class BridgeModel: ObservableObject {
     }
 
     func stop() {
+        #if CJ_MUSE
+        muse.stop()
+        #endif
         monitor?.cancel(); monitor = nil
         accountCheck?.cancel(); accountCheck = nil
         clearNetwork()
@@ -246,15 +267,28 @@ struct BridgeView: View {
                     Picker("Assistant", selection: $model.assistant) {
                         Text("Codex · ChatGPT subscription").tag("codex")
                         Text("Claude Code · Claude subscription").tag("claude-code")
+                        Text("Muse · gadget chat").tag("muse")
                         Text("Gemini · API").tag("gemini")
                     }.onChange(of: model.assistant) { _, _ in model.save() }
-                    HStack { TextField("Working folder", text: $model.workspace).onSubmit { model.save() }; Button("Choose…") { model.chooseFolder() } }
-                    Text("Full access · tool approvals off").font(.callout).foregroundStyle(.secondary)
-                    Text(model.accounts).font(.callout).textSelection(.enabled)
-                    HStack {
-                        Button(model.checking ? "Checking…" : "Refresh sign-ins") { model.refreshAccounts() }.disabled(model.checking || !model.running)
-                        Spacer()
-                        Text("Sign in from Terminal: codex login  ·  claude auth login").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    if model.assistant == "muse" {
+                        #if CJ_MUSE
+                        Text("Muse receives transcribed speech and typed messages through its gadget connection.").font(.callout)
+                        if model.running && !model.managed {
+                            Text("Stop the separately running brain and restart CJ Bridge to use Muse.")
+                        }
+                        MuseSetupButton(relay: model.muse)
+                        #else
+                        Text("Rebuild CJ Bridge with the muse-voice-ios source to enable Muse. See the Mac bridge guide.")
+                        #endif
+                    } else {
+                        HStack { TextField("Working folder", text: $model.workspace).onSubmit { model.save() }; Button("Choose…") { model.chooseFolder() } }
+                        Text("Full access · tool approvals off").font(.callout).foregroundStyle(.secondary)
+                        Text(model.accounts).font(.callout).textSelection(.enabled)
+                        HStack {
+                            Button(model.checking ? "Checking…" : "Refresh sign-ins") { model.refreshAccounts() }.disabled(model.checking || !model.running)
+                            Spacer()
+                            Text("Sign in from Terminal: codex login  ·  claude auth login").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
                     }
                 }.padding(8)
             }

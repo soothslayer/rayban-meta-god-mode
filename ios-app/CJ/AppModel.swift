@@ -27,6 +27,7 @@ final class AppModel: ObservableObject {
     private var request: Task<Void, Never>?
     private let wakeWord = WakeWordListener()
     private var wakeResume: Task<Void, Never>?
+    private var conversationID = UUID()
     private var generation = UUID()
     let uiTesting = ProcessInfo.processInfo.arguments.contains("--uitesting")
 
@@ -66,7 +67,7 @@ final class AppModel: ObservableObject {
             }
             self.stopSpeaking()
             self.wakeWordStatus = "In conversation · say “bye” to return to wake listening"
-            self.live.start(pairing: pairing, history: self.turns, transcriptionLanguage: self.transcriptionLanguage, preparedCapture: capture)
+            self.live.start(pairing: pairing, history: self.turns, conversationID: self.conversationID, transcriptionLanguage: self.transcriptionLanguage, preparedCapture: capture)
         }
     }
 
@@ -115,7 +116,7 @@ final class AppModel: ObservableObject {
                 }
             }
             do {
-                let answer = try await BrainClient(pairing: pairing).ask(text, history: history, image: image)
+                let answer = try await BrainClient(pairing: pairing).ask(text, history: history, image: image, conversationID: self.conversationID)
                 try Task.checkCancellation()
                 guard self.generation == generation else { return }
                 self.append("assistant", answer.spoken)
@@ -138,7 +139,7 @@ final class AppModel: ObservableObject {
         let capture = wakeWord.takeCapture()
         stopSpeaking()
         if wakeWordEnabled { wakeWordStatus = "In conversation · say “bye” to return to wake listening" }
-        live.start(pairing: pairing, history: turns, transcriptionLanguage: transcriptionLanguage, preparedCapture: capture)
+        live.start(pairing: pairing, history: turns, conversationID: conversationID, transcriptionLanguage: transcriptionLanguage, preparedCapture: capture)
     }
 
     func setWakeWordEnabled(_ enabled: Bool) {
@@ -193,6 +194,7 @@ final class AppModel: ObservableObject {
 
     func clear() {
         guard !busy, !live.active else { return }
+        conversationID = UUID()
         turns.removeAll(); attachedImage = nil; notice = nil; pendingNumber = nil
         stopSpeaking()
     }

@@ -9,7 +9,7 @@ questions, live voice over Bluetooth, and Meta glasses camera frames through DAT
 
 See the [iOS setup, supported features, and verification guide](ios-app/README.md).
 Use [CJ Bridge for Mac](mac-app/README.md) to choose Codex with your ChatGPT login
-or Claude Code with your Claude login. Subscription mode uses on-device iPhone
+or Claude Code with your Claude login. You can also pair Muse for voice and text through its gadget connection. Subscription mode uses on-device iPhone
 speech and runs the Mac assistant with unrestricted tool access. Gemini API is
 still available as an explicit option for streaming voice.
 The iOS port includes opt-in, on-device “CJ” wake listening while its microphone session is active. It does not include Android accessibility automation or wake after the app is force-quit.
