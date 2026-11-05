@@ -19,6 +19,7 @@ struct BrainClient {
 
     private func call(_ path: String, body: Data? = nil) async throws -> Data {
         var request = pairing.request(path: path)
+        if path == "/api/ask" { request.timeoutInterval = 330 }
         if let body {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -27,6 +28,11 @@ struct BrainClient {
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw CJError("The Mac returned an invalid response.") }
         if response.statusCode == 401 { throw CJError("The Mac rejected the pairing token. Scan its QR code again.") }
+        if response.statusCode == 503,
+           let detail = (try? JSONSerialization.jsonObject(with: data)) as? [String: String],
+           let message = detail["detail"] {
+            throw CJError(String(message.prefix(500)))
+        }
         guard (200..<300).contains(response.statusCode) else {
             // Avoid displaying server exception bodies, which can contain credentials or private data.
             throw CJError("The Mac returned HTTP \(response.statusCode). Check the brain’s terminal for details.")
@@ -34,23 +40,29 @@ struct BrainClient {
         return data
     }
 
-    func verify() async throws -> Health {
+    func health() async throws -> Health {
         let health = try JSONDecoder().decode(Health.self, from: await call("/health"))
         guard health.ok, health.name == "CJ" else { throw CJError("This address isn’t a CJ brain.") }
+        return health
+    }
+
+    func verify() async throws -> Health {
+        let health = try await health()
         // /health is intentionally public. Verify the token against a read-only authenticated endpoint too.
         _ = try await call("/api/memory")
         return health
     }
 
-    func ask(_ text: String, history: [Turn], image: Data?) async throws -> Answer {
+    func ask(_ text: String, history: [Turn], image: Data?, assistant: String? = nil) async throws -> Answer {
         struct Request: Encodable {
             let text: String
             let history: [Turn]
             let image_b64: String?
             let mime = "image/jpeg"
             let voice = true
+            let assistant: String?
         }
-        let body = try JSONEncoder().encode(Request(text: text, history: Array(history.suffix(8)), image_b64: image?.base64EncodedString()))
+        let body = try JSONEncoder().encode(Request(text: text, history: Array(history.suffix(8)), image_b64: image?.base64EncodedString(), assistant: assistant))
         return try JSONDecoder().decode(Answer.self, from: await call("/api/ask", body: body))
     }
 }

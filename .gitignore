@@ -26,6 +26,7 @@ config.json
 
 # macOS
 .DS_Store
+mac-app/build/
 
 # Audio clips made by tools/wake_test.py
 *.wav

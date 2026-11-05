@@ -15,6 +15,7 @@ final class LiveConversation: ObservableObject {
     var keepMicrophoneOnStop = false
     var photo: (() async throws -> Data)?
     private var capture: VoiceCapture?
+    private var subscription: SubscriptionConversation?
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
     private var receiver: Task<Void, Never>?
@@ -35,6 +36,26 @@ final class LiveConversation: ObservableObject {
         receiver = Task { [weak self] in
             guard let self else { return }
             do {
+                let health = try await BrainClient(pairing: pairing).health()
+                try Task.checkCancellation()
+                if health.voice_mode == "local", let provider = health.assistant, ["codex", "claude-code"].contains(provider) {
+                    let capture = self.capture ?? VoiceCapture()
+                    self.capture = capture
+                    capture.onFailure = { [weak self] in self?.fail($0) }
+                    let subscription = SubscriptionConversation(capture: capture, pairing: pairing, provider: provider,
+                        language: transcriptionLanguage, history: history)
+                    self.subscription = subscription
+                    subscription.photo = self.photo
+                    subscription.onHeard = { [weak self] in self?.heard = $0 }
+                    subscription.onSaid = { [weak self] in self?.said = $0 }
+                    subscription.onStatus = { [weak self] in self?.status = $0 }
+                    subscription.onTurn = { [weak self] in self?.onTurn?($0, $1) }
+                    subscription.onEnd = { [weak self] in self?.stop() }
+                    subscription.onFailure = { [weak self] in self?.fail($0) }
+                    try await subscription.start()
+                    self.route = capture.audio.route
+                    return
+                }
                 let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
                 self.session = session
                 let socket = session.webSocketTask(with: pairing.request(path: "/ws/live", websocket: true))
@@ -149,6 +170,7 @@ final class LiveConversation: ObservableObject {
     func stop(resumeWake: Bool = true) {
         let wasActive = active
         generation = UUID()
+        subscription?.stop(); subscription = nil
         receiver?.cancel(); sender?.cancel(); photoTask?.cancel(); timeout?.cancel()
         receiver = nil; sender = nil; photoTask = nil; timeout = nil
         socket?.cancel(with: .normalClosure, reason: nil)

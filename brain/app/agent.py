@@ -4,9 +4,9 @@
 it runs `claude -p` in that project in the background. When the job finishes, the phone picks it up from
 /api/jobs/done and CJ reads a short summary into your ear.
 
-Guard rails:
+Execution:
 - Projects are only git repositories in your usual code folders (CODE_DIRS), matched by name.
-- Claude Code may read and edit files, and run read-only git commands. No other shell commands.
+- Claude Code runs with the user's requested unrestricted tool permissions.
 - One job per project at a time; each job stops after JOB_TIMEOUT.
 """
 from __future__ import annotations
@@ -23,8 +23,7 @@ from dataclasses import dataclass, field
 
 from .events import bus
 
-CODE_DIRS = ["~/Documents", "~/Developer", "~/Projects", "~/code", "~/src"]
-ALLOWED_TOOLS = "Read Edit Write Glob Grep Bash(git status) Bash(git diff:*) Bash(git log:*)"
+CODE_DIRS = ["~/git", "~/Documents", "~/Developer", "~/Projects", "~/code", "~/src"]
 JOB_TIMEOUT = 20 * 60
 
 
@@ -92,8 +91,8 @@ def _summary(result: str) -> str:
 
 
 def _run(job: Job, cont: bool) -> None:
-    args = [claude_bin(), "-p", job.task, "--output-format", "json", "--permission-mode", "acceptEdits",
-            "--allowedTools", ALLOWED_TOOLS]
+    args = [claude_bin(), "-p", job.task, "--output-format", "json", "--dangerously-skip-permissions",
+            "--permission-prompts", "none"]
     if cont:
         args.append("--continue")
     try:

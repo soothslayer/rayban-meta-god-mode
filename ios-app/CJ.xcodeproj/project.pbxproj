@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B807FD10330C4E0180000001 /* SubscriptionConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B807FD10330C4E0180000002 /* SubscriptionConversation.swift */; };
 		A70B320E9E1348FE98B10001 /* WakeWordSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10002 /* WakeWordSupport.swift */; };
 		A70B320E9E1348FE98B10003 /* VoiceCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10004 /* VoiceCapture.swift */; };
 		A70B320E9E1348FE98B10005 /* WakeWordListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10006 /* WakeWordListener.swift */; };
@@ -48,6 +49,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B807FD10330C4E0180000002 /* SubscriptionConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionConversation.swift; sourceTree = "<group>"; };
 		A70B320E9E1348FE98B10002 /* WakeWordSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordSupport.swift; sourceTree = "<group>"; };
 		A70B320E9E1348FE98B10004 /* VoiceCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCapture.swift; sourceTree = "<group>"; };
 		A70B320E9E1348FE98B10006 /* WakeWordListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordListener.swift; sourceTree = "<group>"; };
@@ -138,6 +140,7 @@
 		A95F450E6435B40385904CB1 /* Audio */ = {
 			isa = PBXGroup;
 			children = (
+				B807FD10330C4E0180000002 /* SubscriptionConversation.swift */,
 				A70B320E9E1348FE98B10004 /* VoiceCapture.swift */,
 				A70B320E9E1348FE98B10006 /* WakeWordListener.swift */,
 				3A5676C7CFB9B03EA5D6864A /* LiveAudio.swift */,
@@ -319,6 +322,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A70B320E9E1348FE98B10001 /* WakeWordSupport.swift in Sources */,
+				B807FD10330C4E0180000001 /* SubscriptionConversation.swift in Sources */,
 				A70B320E9E1348FE98B10003 /* VoiceCapture.swift in Sources */,
 				A70B320E9E1348FE98B10005 /* WakeWordListener.swift in Sources */,
 				96AB27BAA68B3DF508AE8DF5 /* AppModel.swift in Sources */,

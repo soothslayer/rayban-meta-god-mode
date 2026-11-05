@@ -14,12 +14,10 @@ struct SetupView: View {
         Form {
             Section {
                 Label("One Mac. Your own assistant.", systemImage: "desktopcomputer").font(.headline)
-                Text("Start the brain on your Mac, then pair over the same Wi-Fi. Your Mac runs the AI and its tools.")
+                Text("Open CJ Bridge on your Mac, choose Codex or Claude Code, and pair over the same Wi-Fi.")
                     .font(.callout).foregroundStyle(.secondary)
-                Text("Live voice needs a Gemini API key on the Mac. After connecting below, return to Conversation and tap Talk to CJ. Glasses are optional for voice.")
+                Text("Subscription mode uses this Mac’s existing ChatGPT or Claude login. Your iPhone transcribes each question and speaks the reply. Choose Gemini on the Mac if you prefer its streaming API voice.")
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("cd ~/git/rayban-meta-god-mode/brain\n./set-key.sh gemini\n./run.sh")
-                    .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
             }
             Section {
                 Button("Scan pairing QR code", systemImage: "qrcode.viewfinder") { scanning = true }
@@ -71,7 +69,7 @@ struct SetupView: View {
                 if model.wakeWordEnabled { Text(model.wakeWordStatus).font(.footnote).foregroundStyle(.tint) }
                 Text("Enable once after opening CJ, then say “CJ” or “Hey CJ” and your question. After “bye” or End conversation, CJ listens for the wake word again. Turn this switch off to release the microphone.")
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("Wake recognition runs on this iPhone. Audio is sent to your Mac after activation. Listening keeps the microphone active, uses more battery, and can interrupt music. It may continue with the screen locked, but cannot restart after you force-quit CJ or iOS ends the audio session.")
+                Text("Wake recognition runs on this iPhone. Subscription mode sends transcribed questions and requested photos to your Mac; Gemini mode streams conversation audio. Listening keeps the microphone active and may continue with the screen locked, but cannot restart after you force-quit CJ or iOS ends the audio session.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Text("Mac tools work through the existing brain. Android phone automation, automatic visual memory, continuous dictation, location nudges, and split-output translation are not included.")
                     .font(.footnote).foregroundStyle(.secondary)

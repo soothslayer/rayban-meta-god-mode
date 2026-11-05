@@ -13,7 +13,7 @@
   <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
   <key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
   <key>NSMicrophoneUsageDescription</key><string>Listen for CJ on this iPhone when you enable hands-free mode, and send microphone audio to your paired Mac during a conversation.</string>
-  <key>NSSpeechRecognitionUsageDescription</key><string>Recognize the wake phrase CJ on this iPhone. Wake listening requires on-device recognition; conversation audio is sent to your Mac only after activation.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Recognize CJ and transcribe subscription-mode questions on this iPhone. Only the activated question text and requested photos are sent to your Mac in subscription mode.</string>
   <key>NSCameraUsageDescription</key><string>Scan the pairing QR code shown on your Mac.</string>
   <key>NSBluetoothAlwaysUsageDescription</key><string>Connect to your Meta glasses for camera access.</string>
   <key>NSLocalNetworkUsageDescription</key><string>Connect to the CJ brain on your Mac and to your Meta glasses.</string>
