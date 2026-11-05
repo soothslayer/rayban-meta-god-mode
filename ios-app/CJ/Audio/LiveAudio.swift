@@ -34,6 +34,7 @@ final class LiveAudio {
     private var player: AVAudioPlayerNode?
     private var continuation: AsyncStream<Data>.Continuation?
     private var observers: [NSObjectProtocol] = []
+    private var playbackPaused = false
     private var queuedFrames = 0
     private var playbackGeneration = UUID()
     private var sessionOwner: UUID?
@@ -73,6 +74,8 @@ final class LiveAudio {
         observeChanges(engine)
         do {
             try engine.inputNode.setVoiceProcessingEnabled(true)
+            engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration = .init(
+                enableAdvancedDucking: false, duckingLevel: .min)
             try await prepare(engine)
             return pair.stream
         } catch {
@@ -190,6 +193,7 @@ final class LiveAudio {
             if playbackProbe == nil, engine.isRunning, version == configurationVersion {
                 ready = true
                 route = AVAudioSession.sharedInstance().currentRoute.outputs.first?.portName ?? "iPhone speaker"
+                if playbackPaused { player.pause() }
                 for chunk in pendingPlayback { schedule(chunk) }
                 diagnostic("ready")
                 return
@@ -215,7 +219,7 @@ final class LiveAudio {
                     if engine.isRunning,
                        engine.inputNode.outputFormat(forBus: 0) == self.inputFormat,
                        engine.outputNode.inputFormat(forBus: 0) == self.inputFormat {
-                        if self.player?.isPlaying == false { self.player?.play() }
+                        if !self.playbackPaused, self.player?.isPlaying == false { self.player?.play() }
                         return
                     }
                     self.ready = false
@@ -267,10 +271,17 @@ final class LiveAudio {
                 self.queuedFrames = max(0, self.queuedFrames - count)
             }
         }
-        if !player.isPlaying { player.play() }
+        if !playbackPaused, !player.isPlaying { player.play() }
+    }
+
+    func pauseAnswer(_ paused: Bool) {
+        playbackPaused = paused
+        if paused { player?.pause() }
+        else if ready, engine?.isRunning == true { player?.play() }
     }
 
     func interrupt() {
+        playbackPaused = false
         playbackGeneration = UUID()
         queuedFrames = 0
         pendingPlayback.removeAll()

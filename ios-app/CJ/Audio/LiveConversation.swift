@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Speech
 
 @MainActor
 final class LiveConversation: ObservableObject {
@@ -14,6 +15,10 @@ final class LiveConversation: ObservableObject {
     var onStopped: ((Bool, VoiceCapture?) -> Void)?
     var keepMicrophoneOnStop = false
     var photo: (() async throws -> Data)?
+    private let feedback = VoiceFeedback()
+    private var cueTask: Task<Void, Never>?
+    private var legacyPhase: VoicePhase = .listening
+    private var heartbeatEnabled = true
     private var capture: VoiceCapture?
     private var subscription: SubscriptionConversation?
     private var session: URLSession?
@@ -24,8 +29,11 @@ final class LiveConversation: ObservableObject {
     private var timeout: Task<Void, Never>?
     private var generation = UUID()
 
-    func start(pairing: Pairing, history: [Turn], conversationID: UUID, transcriptionLanguage: String, preparedCapture: VoiceCapture? = nil) {
+    func start(pairing: Pairing, history: [Turn], conversationID: UUID, transcriptionLanguage: String, preparedCapture: VoiceCapture? = nil,
+               commands: Bool, heartbeat: Bool, acknowledgeStart: Bool = false) {
         guard !active else { preparedCapture?.stop(); return }
+        heartbeatEnabled = heartbeat
+        legacyPhase = .listening
         capture = preparedCapture
         capture?.onFailure = { [weak self] in self?.fail($0) }
         active = true
@@ -36,15 +44,33 @@ final class LiveConversation: ObservableObject {
         receiver = Task { [weak self] in
             guard let self else { return }
             do {
+                if acknowledgeStart, let capture = self.capture {
+                    self.status = "Starting…"
+                    await self.feedback.confirm("Starting.")
+                    try await Task.sleep(for: .milliseconds(180))
+                    capture.prepareForConversation(from: capture.totalSamples)
+                }
                 let health = try await BrainClient(pairing: pairing).health()
                 try Task.checkCancellation()
-                if health.voice_mode == "local", let provider = health.assistant, ["codex", "claude-code", "muse"].contains(provider) {
+                let provider: String?
+                if health.voice_mode == "local" {
+                    provider = health.assistant
+                } else if health.manual_voice_turns == true, commands,
+                          await Self.canRecognizeControls(language: transcriptionLanguage) {
+                    provider = "gemini"
+                } else {
+                    provider = nil
+                }
+                try Task.checkCancellation()
+                if let provider {
                     let capture = self.capture ?? VoiceCapture()
                     self.capture = capture
                     capture.onFailure = { [weak self] in self?.fail($0) }
                     let subscription = SubscriptionConversation(capture: capture, pairing: pairing, provider: provider,
-                        language: transcriptionLanguage, history: history, conversationID: conversationID)
+                        language: transcriptionLanguage, history: history, conversationID: conversationID,
+                        commands: commands, heartbeat: heartbeat, feedback: self.feedback)
                     self.subscription = subscription
+                    subscription.onPhone = self.onPhone
                     subscription.photo = self.photo
                     subscription.onHeard = { [weak self] in self?.heard = $0 }
                     subscription.onSaid = { [weak self] in self?.said = $0 }
@@ -83,6 +109,7 @@ final class LiveConversation: ObservableObject {
                         guard let capture = self.capture, capture.started else {
                             throw CJError("Reply audio arrived before the microphone was ready.")
                         }
+                        self.legacyReplyBegan()
                         try capture.audio.play(data)
                     case .string(let text):
                         let event = try JSONDecoder().decode(LiveEvent.self, from: Data(text.utf8))
@@ -96,6 +123,7 @@ final class LiveConversation: ObservableObject {
                             self.timeout?.cancel()
                             self.route = capture.audio.route
                             self.status = "Listening · say “bye” to finish"
+                            self.feedback.listening(true)
                             self.sender = Task {
                                 do {
                                     for await frame in frames {
@@ -130,15 +158,61 @@ final class LiveConversation: ObservableObject {
         }
     }
 
+    private static func canRecognizeControls(language: String) async -> Bool {
+        let locale = language.isEmpty ? Locale.current : Locale(identifier: language)
+        guard SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition == true else { return false }
+        if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
+            return await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
+            }
+        }
+        return SFSpeechRecognizer.authorizationStatus() == .authorized
+    }
+
+    private func legacyReplyBegan() {
+        guard legacyPhase != .speaking else { return }
+        cueTask?.cancel()
+        if legacyPhase == .listening && !heard.isEmpty { feedback.listening(false) }
+        legacyPhase = .speaking
+        feedback.thinking(false)
+    }
+
+    private func legacyHeard(_ text: String) {
+        heard += text
+        guard !text.isEmpty, legacyPhase == .listening else { return }
+        cueTask?.cancel()
+        cueTask = Task {
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            legacyPhase = .thinking
+            feedback.listening(false)
+            do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
+            feedback.thinking(heartbeatEnabled)
+        }
+    }
+
+    private func legacyReady() {
+        cueTask?.cancel()
+        feedback.thinking(false)
+        legacyPhase = .listening
+        cueTask = Task {
+            while capture?.audio.isPlaying == true {
+                do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+            }
+            guard !Task.isCancelled else { return }
+            feedback.listening(true)
+        }
+    }
+
     private func handle(_ event: LiveEvent, socket: URLSessionWebSocketTask) {
         switch event.type {
-        case "heard": heard += event.text ?? ""
-        case "said": said += event.text ?? ""; status = "CJ is speaking"
+        case "heard": legacyHeard(event.text ?? "")
+        case "said": legacyReplyBegan(); said += event.text ?? ""; status = "CJ is speaking"
         case "turn_done":
+            if event.ending != true { legacyReady() }
             onTurn?(event.heard ?? heard, event.said ?? said)
             heard = ""; said = ""
             status = "Listening · say “bye” to finish"
-        case "interrupted": capture?.audio.interrupt(); said = ""; status = "Listening…"
+        case "interrupted": capture?.audio.interrupt(); legacyReady(); said = ""; status = "Listening…"
         case "error": fail(event.text ?? "The Mac couldn’t start live voice.")
         case "phone":
             if let action = event.action {
@@ -170,6 +244,8 @@ final class LiveConversation: ObservableObject {
     func stop(resumeWake: Bool = true) {
         let wasActive = active
         generation = UUID()
+        cueTask?.cancel(); cueTask = nil
+        feedback.stop()
         subscription?.stop(); subscription = nil
         receiver?.cancel(); sender?.cancel(); photoTask?.cancel(); timeout?.cancel()
         receiver = nil; sender = nil; photoTask = nil; timeout = nil

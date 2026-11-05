@@ -79,6 +79,7 @@ struct Answer: Decodable {
 }
 
 struct LiveEvent: Decodable {
+    var ending: Bool?
     let type: String
     var text: String?
     var heard: String?
@@ -94,5 +95,6 @@ struct Health: Decodable {
     let ok: Bool
     let providers: [String: Bool]
     var assistant: String?
+    var manual_voice_turns: Bool?
     var voice_mode: String?
 }

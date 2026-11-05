@@ -28,10 +28,11 @@ place. It is a local development app, not a standalone distribution installer.
    Mac assistant answers; the iPhone renders an Apple voice through the existing
    Bluetooth audio engine. Typed questions and attached photos use the same assistant.
 
-Subscription voice is turn-based: question recognition pauses while the Mac is
-working and while CJ speaks, then resumes. Say “bye” to end a conversation, or
-tap End to cancel the current request. With wake listening enabled, ending a
-conversation returns to wake detection. Visual questions such as “look at this”
+The iPhone plays a rising chime when ready for a question and a falling chime
+when it sends the question. While the Mac is working or CJ is speaking, the
+phone can still recognize Stop, Cancel, or Mute. Say Unmute to restore input.
+Say “bye” or Stop to return to standby. With CJ open, say Start to begin again.
+See [iPhone voice controls](../ios-app/README.md#raybridge-chimes-and-voice-commands). Visual questions such as “look at this”
 request a fresh glasses photo; typed questions can include an attached photo.
 
 ## Pair Muse on the Mac

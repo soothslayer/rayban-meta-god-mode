@@ -1,4 +1,5 @@
 import SwiftUI
+import Speech
 import AVFoundation
 import UserNotifications
 
@@ -18,6 +19,21 @@ final class AppModel: ObservableObject {
     @Published private(set) var wakeWordStatus = "Wake listening is off"
     @Published var transcriptionLanguage = UserDefaults.standard.string(forKey: "speechLanguage") ?? "en-US" {
         didSet { UserDefaults.standard.set(transcriptionLanguage, forKey: "speechLanguage") }
+    }
+    @Published var voiceCommandsEnabled = UserDefaults.standard.object(forKey: "voiceCommands") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(voiceCommandsEnabled, forKey: "voiceCommands"); updateStandby() }
+    }
+    @Published var startStandbyEnabled = UserDefaults.standard.object(forKey: "startStandby") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(startStandbyEnabled, forKey: "startStandby"); updateStandby() }
+    }
+    @Published var thinkingHeartbeatEnabled = UserDefaults.standard.object(forKey: "thinkingHeartbeat") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(thinkingHeartbeatEnabled, forKey: "thinkingHeartbeat") }
+    }
+    var showsWakeStatus: Bool { wakeWordEnabled || (standbyPermitted && !live.active && !busy) }
+    private var foreground = false
+    private var standbyPermitted: Bool {
+        foreground && voiceCommandsEnabled && startStandbyEnabled && pairing != nil && !uiTesting
+            && SFSpeechRecognizer.authorizationStatus() == .authorized && AVAudioApplication.shared.recordPermission == .granted
     }
     let live = LiveConversation()
     let glasses = GlassesManager()
@@ -44,7 +60,7 @@ final class AppModel: ObservableObject {
         live.onFailure = { [weak self] in self?.error = $0 }
         live.onStopped = { [weak self] resume, capture in
             guard let self else { capture?.stop(); return }
-            if resume, self.wakeWordEnabled { self.resumeWakeListening(using: capture) }
+            if resume, self.wakeWordEnabled || self.standbyPermitted { self.resumeWakeListening(using: capture) }
             else {
                 capture?.stop()
                 if !resume { self.disableWakeWord(status: "Wake listening paused after an interruption. Enable it again when ready.") }
@@ -57,27 +73,44 @@ final class AppModel: ObservableObject {
         }
         wakeWord.onState = { [weak self] in self?.wakeWordStatus = $0 }
         wakeWord.onFailure = { [weak self] message in
-            self?.disableWakeWord(status: "Wake listening stopped")
-            self?.error = message
+            guard let self else { return }
+            let requested = self.wakeWordEnabled
+            self.disableWakeWord(status: "Wake listening stopped")
+            if requested { self.error = message }
         }
-        wakeWord.onWake = { [weak self] capture in
-            guard let self, let pairing = self.pairing, self.wakeWordEnabled, !self.busy, !self.live.active else {
+        wakeWord.onWake = { [weak self] capture, viaStart in
+            guard let self, let pairing = self.pairing, (viaStart ? self.standbyPermitted : self.wakeWordEnabled), !self.busy, !self.live.active else {
                 capture.stop()
                 return
             }
             self.stopSpeaking()
             self.wakeWordStatus = "In conversation · say “bye” to return to wake listening"
-            self.live.start(pairing: pairing, history: self.turns, conversationID: self.conversationID, transcriptionLanguage: self.transcriptionLanguage, preparedCapture: capture)
+            self.live.start(pairing: pairing, history: self.turns, conversationID: self.conversationID, transcriptionLanguage: self.transcriptionLanguage, preparedCapture: capture, commands: self.voiceCommandsEnabled, heartbeat: self.thinkingHeartbeatEnabled, acknowledgeStart: viaStart)
         }
     }
 
-    func setup() { if !uiTesting { glasses.configure() } }
+    func setup() {
+        if !uiTesting { glasses.configure(); setForeground(UIApplication.shared.applicationState == .active) }
+    }
+
+    func setForeground(_ active: Bool) {
+        guard foreground != active else { return }
+        foreground = active
+        if !live.active && !wakeWordEnabled { updateStandby() }
+    }
+
+    private func updateStandby() {
+        live.keepMicrophoneOnStop = wakeWordEnabled || standbyPermitted
+        guard !live.active else { return }
+        pauseWakeListening()
+        resumeWakeListening()
+    }
 
     func pair(_ candidate: Pairing) async throws {
         guard !busy, !live.active else { throw CJError("End the current conversation before changing your Mac.") }
         disableWakeWord()
         busy = true
-        defer { busy = false }
+        defer { busy = false; updateStandby() }
         let health = try await BrainClient(pairing: candidate).verify()
         if !uiTesting { try KeychainStore.save(candidate) }
         pairing = candidate
@@ -139,14 +172,14 @@ final class AppModel: ObservableObject {
         let capture = wakeWord.takeCapture()
         stopSpeaking()
         if wakeWordEnabled { wakeWordStatus = "In conversation · say “bye” to return to wake listening" }
-        live.start(pairing: pairing, history: turns, conversationID: conversationID, transcriptionLanguage: transcriptionLanguage, preparedCapture: capture)
+        live.start(pairing: pairing, history: turns, conversationID: conversationID, transcriptionLanguage: transcriptionLanguage, preparedCapture: capture, commands: voiceCommandsEnabled, heartbeat: thinkingHeartbeatEnabled)
     }
 
     func setWakeWordEnabled(_ enabled: Bool) {
         if !enabled {
             disableWakeWord()
-            // Turning this switch off is an explicit request to release the mic.
             if live.active { live.stop() }
+            updateStandby()
             return
         }
         guard pairing != nil else { error = "Connect your Mac before enabling Listen for CJ."; return }
@@ -172,16 +205,16 @@ final class AppModel: ObservableObject {
 
     private func resumeWakeListening(using capture: VoiceCapture? = nil) {
         wakeResume?.cancel(); wakeResume = nil
-        guard wakeWordEnabled, !live.active, !busy else { capture?.stop(); return }
-        if let capture { wakeWord.start(using: capture); return }
+        guard wakeWordEnabled || standbyPermitted, !live.active, !busy else { capture?.stop(); return }
+        if let capture { wakeWord.start(using: capture, listenForCJ: wakeWordEnabled, listenForStart: voiceCommandsEnabled && startStandbyEnabled); return }
         wakeResume = Task { [weak self] in
             guard let self else { return }
             // Do not let CJ's own text-to-speech reply trigger the wake detector.
             while self.speech.isSpeaking || self.player?.isPlaying == true {
                 do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
             }
-            guard !Task.isCancelled, self.wakeWordEnabled, !self.live.active, !self.busy else { return }
-            self.wakeWord.start()
+            guard !Task.isCancelled, self.wakeWordEnabled || self.standbyPermitted, !self.live.active, !self.busy else { return }
+            self.wakeWord.start(listenForCJ: self.wakeWordEnabled, listenForStart: self.voiceCommandsEnabled && self.startStandbyEnabled)
         }
     }
 

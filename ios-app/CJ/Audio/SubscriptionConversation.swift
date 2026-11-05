@@ -12,6 +12,18 @@ final class SubscriptionConversation {
     var onFailure: ((String) -> Void)?
     var onEnd: (() -> Void)?
     var photo: (() async throws -> Data)?
+    var onPhone: ((PhoneAction) -> Void)?
+    private let commandsEnabled: Bool
+    private let heartbeatEnabled: Bool
+    private let feedback: VoiceFeedback
+    private var phase: VoicePhase = .listening
+    private var muted = false
+    private var control: Task<Void, Never>?
+    private let gemini: GeminiVoiceTurns?
+    private var questionAudio = Data()
+    private var speechStart: TimeInterval = 0
+    private var turnID = UUID()
+    private var takesQuestions: Bool { phase == .listening && !muted }
     private let capture: VoiceCapture
     private let client: BrainClient
     private let conversationID: UUID
@@ -20,6 +32,7 @@ final class SubscriptionConversation {
         switch provider {
         case "codex": return "Codex"
         case "muse": return "Muse"
+        case "gemini": return "Gemini"
         default: return "Claude Code"
         }
     }
@@ -38,7 +51,12 @@ final class SubscriptionConversation {
     private var failures = 0
     private var stopped = false
 
-    init(capture: VoiceCapture, pairing: Pairing, provider: String, language: String, history: [Turn], conversationID: UUID) {
+    init(capture: VoiceCapture, pairing: Pairing, provider: String, language: String, history: [Turn], conversationID: UUID,
+         commands: Bool, heartbeat: Bool, feedback: VoiceFeedback) {
+        commandsEnabled = commands
+        heartbeatEnabled = heartbeat
+        self.feedback = feedback
+        gemini = provider == "gemini" ? GeminiVoiceTurns(pairing: pairing, language: language) : nil
         self.conversationID = conversationID
         self.capture = capture
         self.client = BrainClient(pairing: pairing)
@@ -63,8 +81,25 @@ final class SubscriptionConversation {
         try await capture.start()
         try Task.checkCancellation()
         guard !stopped else { throw CancellationError() }
+        if let gemini {
+            gemini.photo = photo
+            gemini.onPhone = onPhone
+            gemini.onSaid = onSaid
+            gemini.onAudio = { [weak self] data in
+                guard let self else { throw CancellationError() }
+                self.beginSpeaking()
+                // Backpressure keeps long answers and confirmations within the playback budget.
+                while self.capture.audio.bufferedPlaybackSeconds > 2 {
+                    try await Task.sleep(for: .milliseconds(40))
+                }
+                try Task.checkCancellation()
+                try self.capture.audio.play(data)
+            }
+            try await gemini.connect(history: history)
+            try Task.checkCancellation()
+        }
         let frames = capture.conversationFrames()
-        listen()
+        readyToListen()
         reader = Task { [weak self] in
             for await pcm in frames {
                 guard !Task.isCancelled, let self else { return }
@@ -74,6 +109,7 @@ final class SubscriptionConversation {
                       let destination = buffer.int16ChannelData?[0] else { continue }
                 buffer.frameLength = buffer.frameCapacity
                 pcm.withUnsafeBytes { if let base = $0.baseAddress { memcpy(destination, base, pcm.count) } }
+                if self.gemini != nil, self.takesQuestions { self.questionAudio.append(pcm) }
                 request.append(buffer)
             }
         }
@@ -87,47 +123,71 @@ final class SubscriptionConversation {
         request?.endAudio(); request = nil
     }
 
-    private func listen() {
-        finishRecognition()
-        guard !stopped, let recognizer else { return }
-        latest = ""
+    private func readyToListen() {
+        phase = .listening
+        feedback.thinking(false)
+        guard control == nil, !stopped else { return }
+        if !muted { feedback.listening(true) }
         onHeard?(""); onSaid?("")
-        onStatus?("Listening · \(assistantName) · say “bye” to finish")
+        updateStatus()
+        armRecognition()
+    }
+
+    private func updateStatus() {
+        if muted {
+            onStatus?("Muted · say “Unmute” to ask another question")
+            return
+        }
+        switch phase {
+        case .listening: onStatus?("Listening · \(assistantName) · say “bye” to finish")
+        case .thinking: onStatus?("\(assistantName) is answering…")
+        case .speaking: onStatus?("CJ is speaking")
+        case .standby: break
+        }
+    }
+
+    private func armRecognition() {
+        finishRecognition()
+        questionAudio = Data()
+        speechStart = 0
+        latest = ""
+        guard !stopped, control == nil, let recognizer, takesQuestions || commandsEnabled else { return }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = true
-        request.taskHint = .dictation
+        request.taskHint = takesQuestions ? .dictation : .confirmation
+        if commandsEnabled { request.contextualStrings = VoiceCommand.allCases.map(\.rawValue) }
         self.request = request
-        let generation = generation
+        let generation = self.generation
+        let started = ContinuousClock.now
         recognition = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
                 guard let self, !self.stopped, self.generation == generation else { return }
                 if let result {
+                    self.speechStart = result.bestTranscription.segments.first?.timestamp ?? 0
                     let text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !text.isEmpty {
-                        self.failures = 0
-                        if text != self.latest {
-                            self.latest = text
-                            self.onHeard?(text)
-                            self.silence?.cancel()
-                            self.silence = Task { [weak self] in
-                                do { try await Task.sleep(for: .milliseconds(1200)) } catch { return }
-                                guard let self, self.generation == generation else { return }
-                                self.submit()
-                            }
+                    if !text.isEmpty { self.failures = 0 }
+                    if text != self.latest {
+                        self.latest = text
+                        if self.takesQuestions { self.onHeard?(text) }
+                        self.silence?.cancel()
+                        self.silence = Task { [weak self] in
+                            guard let self else { return }
+                            do { try await Task.sleep(for: .milliseconds(self.takesQuestions ? 1200 : 650)) } catch { return }
+                            guard self.generation == generation else { return }
+                            self.submit()
                         }
                     }
                     if result.isFinal { self.submit(); return }
                 }
                 if error != nil {
-                    self.failures += 1
-                    if self.failures >= 3 { self.onFailure?("Speech recognition stopped. Tap Talk to reconnect.") }
-                    else {
-                        self.finishRecognition()
-                        self.rotation = Task { [weak self] in
-                            do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                            self?.listen()
-                        }
+                    if started.duration(to: .now) < .seconds(2) { self.failures += 1 }
+                    else { self.failures = 0 }
+                    self.finishRecognition()
+                    if self.failures >= 3 { self.onFailure?("Speech recognition stopped. Tap Talk to reconnect."); return }
+                    self.rotation = Task { [weak self] in
+                        do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+                        self?.armRecognition()
                     }
                 }
             }
@@ -135,43 +195,111 @@ final class SubscriptionConversation {
         rotation = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(45)) } catch { return }
             guard let self, self.generation == generation else { return }
-            if self.latest.isEmpty { self.listen() } else { self.submit() }
+            self.submit()
         }
     }
 
     private func submit() {
         guard !stopped, request != nil else { return }
+        if commandsEnabled, let command = VoiceCommandPolicy.command(in: latest),
+           phase.accepts(command, muted: muted) {
+            handle(command)
+            return
+        }
+        guard takesQuestions else { armRecognition(); return }
         let question = latest.replacingOccurrences(of: "(?i)^(?:hey[ ,]+)?(?:c[ .]*j|see jay|c jay)\\b[ ,.!?:]*", with: "", options: .regularExpression)
-        finishRecognition()
-        guard !question.isEmpty else { listen(); return }
+        guard !question.isEmpty else { armRecognition(); return }
         let normalized = question.lowercased().filter { !$0.isPunctuation }.trimmingCharacters(in: .whitespacesAndNewlines)
         if ["bye", "goodbye", "bye cj", "goodbye cj", "end conversation", "stop listening"].contains(normalized) {
             onEnd?(); return
         }
+        // Apple timestamps are relative to this request's PCM. Keep a short
+        // lead-in so an idle microphone never adds a long silence to Gemini's turn.
+        let startByte = min(questionAudio.count, max(0, Int((speechStart - 0.3) * 16_000)) * 2)
+        let audio = Data(questionAudio.dropFirst(startByte))
+        phase = .thinking
+        updateStatus()
+        armRecognition()
         onHeard?(question)
-        onStatus?("\(assistantName) is answering…")
+        feedback.listening(false)
+        let id = UUID()
+        turnID = id
         answer = Task { [weak self] in
             guard let self else { return }
             do {
-                var image: Data?
-                if self.provider != "muse", question.range(of: "(?i)\\b(look|see|camera|photo|picture|read this|what is this|what's this)\\b", options: .regularExpression) != nil {
-                    image = try? await self.photo?()
+                try await Task.sleep(for: .milliseconds(180))
+                if self.control == nil { self.feedback.thinking(self.heartbeatEnabled) }
+                let response: String
+                var ending = false
+                if let gemini = self.gemini {
+                    (response, ending) = try await gemini.reply(to: audio, history: self.history)
+                } else {
+                    var image: Data?
+                    if self.provider != "muse", question.range(of: "(?i)\\b(look|see|camera|photo|picture|read this|what is this|what's this)\\b", options: .regularExpression) != nil {
+                        image = try? await self.photo?()
+                    }
+                    try Task.checkCancellation()
+                    let reply = try await self.client.ask(question, history: self.history, image: image, assistant: self.provider, conversationID: self.conversationID)
+                    response = reply.spoken
                 }
                 try Task.checkCancellation()
-                let reply = try await self.client.ask(question, history: self.history, image: image, assistant: self.provider, conversationID: self.conversationID)
-                try Task.checkCancellation()
-                self.onSaid?(reply.spoken)
-                self.onTurn?(question, reply.spoken)
-                self.history += [Turn(role: "user", text: question), Turn(role: "assistant", text: reply.spoken)]
+                guard self.turnID == id else { return }
+                self.beginSpeaking()
+                self.onSaid?(response)
+                self.onTurn?(question, response)
+                self.history += [Turn(role: "user", text: question), Turn(role: "assistant", text: response)]
                 self.history = Array(self.history.suffix(8))
-                self.onStatus?("CJ is speaking")
-                try await self.speak(reply.spoken)
-                // Keep the assistant's acoustic tail out of the next question.
+                if self.gemini == nil { try await self.speak(response) }
+                while self.capture.audio.isPlaying { try await Task.sleep(for: .milliseconds(50)) }
                 try await Task.sleep(for: .milliseconds(350))
-                self.listen()
+                if ending { self.onEnd?() } else { self.readyToListen() }
             } catch {
-                guard !Task.isCancelled, !self.stopped else { return }
+                guard !Task.isCancelled, !self.stopped, self.turnID == id else { return }
                 self.onFailure?(error.localizedDescription)
+            }
+        }
+    }
+
+    private func beginSpeaking() {
+        if phase == .speaking { return }
+        phase = .speaking
+        feedback.thinking(false)
+        if control == nil { updateStatus() }
+    }
+
+    private func handle(_ command: VoiceCommand) {
+        guard control == nil else { return }
+        finishRecognition()
+        let message: String
+        switch command {
+        case .start: return // Handled by the foreground standby listener.
+        case .stop, .cancel:
+            turnID = UUID()
+            answer?.cancel(); answer = nil
+            speech.stopSpeaking(at: .immediate)
+            capture.audio.interrupt()
+            gemini?.close()
+            phase = .listening
+            message = command == .stop ? "Stopping" : "Cancelling"
+        case .mute, .unmute:
+            muted = command == .mute
+            capture.audio.pauseAnswer(true)
+            message = muted ? "Muted" : "Unmuted"
+        }
+        onStatus?(message)
+        control = Task { [weak self] in
+            guard let self else { return }
+            await self.feedback.confirm(message + ".")
+            do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
+            guard !Task.isCancelled, !self.stopped else { return }
+            self.control = nil
+            if command == .stop { self.onEnd?(); return }
+            self.capture.audio.pauseAnswer(false)
+            if self.phase == .listening { self.readyToListen() }
+            else {
+                self.updateStatus()
+                self.feedback.thinking(self.phase == .thinking && self.heartbeatEnabled)
+                self.armRecognition()
             }
         }
     }
@@ -211,6 +339,10 @@ final class SubscriptionConversation {
 
     func stop() {
         stopped = true
+        turnID = UUID()
+        control?.cancel(); control = nil
+        feedback.stop()
+        gemini?.close()
         finishRecognition()
         reader?.cancel(); reader = nil
         answer?.cancel(); answer = nil

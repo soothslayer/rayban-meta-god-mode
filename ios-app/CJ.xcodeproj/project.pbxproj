@@ -8,7 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		B807FD10330C4E0180000001 /* SubscriptionConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B807FD10330C4E0180000002 /* SubscriptionConversation.swift */; };
+		E520CD25A1074B93A1F00005 /* GeminiVoiceTurns.swift in Sources */ = {isa = PBXBuildFile; fileRef = E520CD25A1074B93A1F00006 /* GeminiVoiceTurns.swift */; };
+		E520CD25A1074B93A1F00003 /* VoiceFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = E520CD25A1074B93A1F00004 /* VoiceFeedback.swift */; };
 		A70B320E9E1348FE98B10001 /* WakeWordSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10002 /* WakeWordSupport.swift */; };
+		E520CD25A1074B93A1F00001 /* VoiceControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = E520CD25A1074B93A1F00002 /* VoiceControls.swift */; };
 		A70B320E9E1348FE98B10003 /* VoiceCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10004 /* VoiceCapture.swift */; };
 		A70B320E9E1348FE98B10005 /* WakeWordListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10006 /* WakeWordListener.swift */; };
 		A70B320E9E1348FE98B10007 /* WakeWordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70B320E9E1348FE98B10008 /* WakeWordTests.swift */; };
@@ -50,7 +53,10 @@
 
 /* Begin PBXFileReference section */
 		B807FD10330C4E0180000002 /* SubscriptionConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionConversation.swift; sourceTree = "<group>"; };
+		E520CD25A1074B93A1F00006 /* GeminiVoiceTurns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiVoiceTurns.swift; sourceTree = "<group>"; };
+		E520CD25A1074B93A1F00004 /* VoiceFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceFeedback.swift; sourceTree = "<group>"; };
 		A70B320E9E1348FE98B10002 /* WakeWordSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordSupport.swift; sourceTree = "<group>"; };
+		E520CD25A1074B93A1F00002 /* VoiceControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceControls.swift; sourceTree = "<group>"; };
 		A70B320E9E1348FE98B10004 /* VoiceCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCapture.swift; sourceTree = "<group>"; };
 		A70B320E9E1348FE98B10006 /* WakeWordListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordListener.swift; sourceTree = "<group>"; };
 		A70B320E9E1348FE98B10008 /* WakeWordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeWordTests.swift; sourceTree = "<group>"; };
@@ -102,6 +108,7 @@
 			isa = PBXGroup;
 			children = (
 				A70B320E9E1348FE98B10002 /* WakeWordSupport.swift */,
+				E520CD25A1074B93A1F00002 /* VoiceControls.swift */,
 				552B7002838013F052FED71B /* BrainClient.swift */,
 				70946D7E35C93E13F0188B14 /* KeychainStore.swift */,
 				873E3AAF109780BD33BD1FA4 /* Pairing.swift */,
@@ -141,6 +148,8 @@
 			isa = PBXGroup;
 			children = (
 				B807FD10330C4E0180000002 /* SubscriptionConversation.swift */,
+				E520CD25A1074B93A1F00006 /* GeminiVoiceTurns.swift */,
+				E520CD25A1074B93A1F00004 /* VoiceFeedback.swift */,
 				A70B320E9E1348FE98B10004 /* VoiceCapture.swift */,
 				A70B320E9E1348FE98B10006 /* WakeWordListener.swift */,
 				3A5676C7CFB9B03EA5D6864A /* LiveAudio.swift */,
@@ -322,7 +331,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				A70B320E9E1348FE98B10001 /* WakeWordSupport.swift in Sources */,
+				E520CD25A1074B93A1F00001 /* VoiceControls.swift in Sources */,
 				B807FD10330C4E0180000001 /* SubscriptionConversation.swift in Sources */,
+				E520CD25A1074B93A1F00005 /* GeminiVoiceTurns.swift in Sources */,
+				E520CD25A1074B93A1F00003 /* VoiceFeedback.swift in Sources */,
 				A70B320E9E1348FE98B10003 /* VoiceCapture.swift in Sources */,
 				A70B320E9E1348FE98B10005 /* WakeWordListener.swift in Sources */,
 				96AB27BAA68B3DF508AE8DF5 /* AppModel.swift in Sources */,

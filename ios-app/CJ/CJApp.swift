@@ -26,7 +26,8 @@ struct CJApp: App {
                 .task { model.setup() }
                 .onOpenURL { url in Task { await model.glasses.handle(url) } }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .background { model.glasses.enteredBackground() }
+                    if phase == .background { model.setForeground(false); model.glasses.enteredBackground() }
+                    if phase == .active { model.setForeground(true) }
                 }
         }
     }

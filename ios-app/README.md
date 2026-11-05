@@ -66,18 +66,37 @@ idle audio or transcripts to a recognition server. A bounded in-memory buffer
 retains the wake phrase and the following question while the Mac connects.
 
 Saying **bye** or tapping **End conversation** returns to wake listening. The same
-microphone capture continues through both modes. Turning **Listen for CJ** off
-ends the active conversation and releases the microphone. The switch defaults
-to off on each launch; opening the app alone does not start recording.
+microphone capture continues through both modes. The **Listen for CJ** switch defaults to off on each launch. To release the idle
+microphone, turn off both **Listen for CJ** and **Listen for Start while stopped**.
 
-An active audio session may continue while the phone is locked, but iOS may stop
-it after interruptions or resource pressure. A force-quit app cannot hear the wake
-word. The app keeps the microphone active while armed, which increases battery
-use and can interrupt music or change Bluetooth audio quality. This is an opt-in
-listening session, not access to the glasses' low-power “Hey Meta” detector.
+An active audio session may continue while the phone is locked. A force-quit app
+cannot hear either phrase. Keeping the microphone active can increase battery use
+and change Bluetooth audio quality. CJ uses the iPhone's active audio session.
 Recognition restarts periodically without reopening the microphone. Repeated
 recognizer failures, audio interruptions, or connection errors pause wake mode.
 Long-running lock-screen behavior and wake accuracy require hardware validation.
+
+## RayBridge chimes and voice commands
+
+A rising two-note chime means CJ is listening for a question. The falling chime
+means CJ has submitted it. A quiet double pulse repeats while the assistant is
+thinking. Toggle the heartbeat in **Setup → Sound cues and voice commands**.
+
+Say each English command on its own. CJ confirms it aloud.
+
+| Command | What happens |
+| --- | --- |
+| **Start** | Starts a conversation while CJ is open, paired, and has microphone and speech permissions. Wait for the rising chime before asking your question. |
+| **Cancel** | Drops the current question or stops its reply, then listens for another question. |
+| **Stop** | Ends the conversation and returns to standby. |
+| **Mute** | Pauses new questions. The current reply can finish. |
+| **Unmute** | Restores input after Mute. |
+
+Voice commands and foreground Start are enabled by default and have separate
+switches in Setup. While muted, the phone listens locally for Unmute. With the
+updated Mac bridge, Gemini receives the original microphone audio for accepted
+questions. When local recognition is unavailable, voice commands are disabled,
+or the bridge predates this feature, Gemini uses its existing streaming mode.
 
 ## Feature coverage
 
